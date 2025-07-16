@@ -27,10 +27,8 @@ function App() {
   const [hoveredPubId, setHoveredPubId] = useState(null);
   const [crawlPubIds, setCrawlPubIds] = useState([]);
 
-  // THIS IS THE SINGLE SOURCE OF TRUTH FOR UPDATING THE MAP'S VISUAL DATA
   useEffect(() => {
     if (!map.current || !map.current.isStyleLoaded() || !map.current.getSource('pubs-source')) return;
-
     const features = allPubs.map(p => {
         if (!p || typeof p.geom !== 'string' || p.id == null) return null;
         const match = p.geom.match(/POINT\s*\(([^)]+)\)/);
@@ -41,17 +39,15 @@ function App() {
         if (isNaN(lon) || isNaN(lat)) return null;
         return { type: 'Feature', id: p.id, geometry: { type: 'Point', coordinates: [lon, lat] }, properties: { name: p.name, is_visited: p.is_visited }, };
     }).filter(Boolean);
-    
     map.current.getSource('pubs-source').setData({ type: 'FeatureCollection', features });
-
-  }, [allPubs]); // This effect runs ONLY when the main allPubs data array changes.
+  }, [allPubs]);
 
   const handleDataUpdate = useCallback(async (currentSelectedId = null) => {
     const { data, error } = await supabase.rpc('get_all_pub_details');
     if (error) { setNotification({ message: `Error loading pubs: ${error.message}`, type: 'error' }); return; }
     const pubData = data.map(pub => ({...pub, geom: pub.geom || ''}));
     allPubsRef.current = pubData;
-    setAllPubs(pubData); // This will trigger the useEffect above to update the map
+    setAllPubs(pubData);
     if (currentSelectedId) { setSelectedPub(pubData.find(p => p.id === currentSelectedId) || null); }
   }, []);
   
@@ -63,32 +59,43 @@ function App() {
     map.current = new maplibregl.Map({ container: mapContainer.current, style: `https://tiles.stadiamaps.com/styles/alidade_smooth_dark.json?api_key=${stadiaApiKey}`, center: [-3.53, 50.72], zoom: 12, antialias: true });
 
     map.current.on('load', async () => {
+      // Create a single popup instance to be reused, but keep it closed by default.
+      const popup = new maplibregl.Popup({
+        closeButton: false,
+        closeOnClick: false
+      });
+      
       map.current.addSource('pubs-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] }, promoteId: 'id' });
       map.current.addLayer({ id: 'pubs-layer', type: 'circle', source: 'pubs-source', paint: { 'circle-color': ['case', ['get', 'is_visited'], '#198754', '#dc3545'], 'circle-radius': ['case', ['boolean', ['feature-state', 'hover'], false], 11, ['boolean', ['feature-state', 'selected'], false], 9, 7], 'circle-stroke-color': ['case', ['boolean', ['feature-state', 'selected'], false], '#0d6efd', '#FFFFFF'], 'circle-stroke-width': ['case', ['boolean', ['feature-state', 'hover'], false], 2.5, 2], 'circle-opacity-transition': {duration: 200}, 'circle-radius-transition': { duration: 150 }, 'circle-color-transition': { duration: 300 } }});
-      map.current.addLayer({ id: 'pub-labels', type: 'symbol', source: 'pubs-source', layout: { 'text-field': ['get', 'name'], 'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'], 'text-offset': [0, 1.6], 'text-anchor': 'top', 'text-allow-overlap': true }, paint: { 'text-color': '#ffffff', 'text-halo-color': 'rgba(0, 0, 0, 0.9)', 'text-halo-width': 1.5, 'text-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 1.0, 0.0], 'text-opacity-transition': { duration: 200 } } });
       
+      // We no longer need the separate 'pub-labels' layer.
+
       let currentHoverId = null;
       map.current.on('mousemove', 'pubs-layer', (e) => {
         map.current.getCanvas().style.cursor = 'pointer';
         if (e.features.length > 0 && e.features[0].id != null) {
-          if (e.features[0].id !== currentHoverId) {
-            if (currentHoverId != null) map.current.setFeatureState({ source: 'pubs-source', id: currentHoverId }, { hover: false });
-            currentHoverId = e.features[0].id;
-            map.current.setFeatureState({ source: 'pubs-source', id: currentHoverId }, { hover: true });
-            // The hover visual is now entirely handled by the map. We only set React state for the dimming effect.
-            setHoveredPubId(currentHoverId);
-          }
+            const feature = e.features[0];
+            
+            // Show popup
+            popup.setLngLat(feature.geometry.coordinates).setHTML(feature.properties.name).addTo(map.current);
+
+            if (feature.id !== currentHoverId) {
+                if (currentHoverId != null) map.current.setFeatureState({ source: 'pubs-source', id: currentHoverId }, { hover: false });
+                currentHoverId = feature.id;
+                map.current.setFeatureState({ source: 'pubs-source', id: currentHoverId }, { hover: true });
+                setHoveredPubId(currentHoverId);
+            }
         }
       });
       map.current.on('mouseleave', 'pubs-layer', () => {
         map.current.getCanvas().style.cursor = '';
+        popup.remove(); // Remove popup when mouse leaves the layer
         if (currentHoverId != null) map.current.setFeatureState({ source: 'pubs-source', id: currentHoverId }, { hover: false });
         currentHoverId = null;
         setHoveredPubId(null);
       });
       
       map.current.on('click', 'pubs-layer', (e) => { if (e.features.length > 0 && e.features[0].id != null) { const pub = allPubsRef.current.find(p => p.id === e.features[0].id); if (pub) { clearCrawlRoute(); setSelectedPub(pub); } } });
-      
       setIsLoading(true);
       await handleDataUpdate();
       setIsLoading(false);
@@ -98,7 +105,7 @@ function App() {
   
   useEffect(() => {
     if (!map.current?.isStyleLoaded()) return;
-    let opacityExpression = 1.0; // Default is fully opaque
+    let opacityExpression = 1.0;
     if (hoveredPubId != null) { opacityExpression = ['case', ['==', ['id'], hoveredPubId], 1.0, 0.4]; }
     else if (crawlPubIds.length > 0) { opacityExpression = ['case', ['in', ['id'], ['literal', crawlPubIds]], 1.0, 0.4]; }
     map.current.setPaintProperty('pubs-layer', 'circle-opacity', opacityExpression);
@@ -125,7 +132,6 @@ function App() {
     const match = selectedPub.geom.match(/POINT\s*\(([^)]+)\)/);
     if (!match?.[1]) { setNotification({message: 'Pub location is invalid.', type: 'error'}); return; }
     const coords = match[1].trim().split(/\s+/).map(Number);
-    
     try {
         const response = await fetch(`/api/generate-crawl?lng=${coords[0]}&lat=${coords[1]}&start_pub_id=${selectedPub.id}`);
         const data = await response.json();

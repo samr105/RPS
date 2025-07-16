@@ -111,3 +111,21 @@
 .notification.error { background-color: var(--accent-red); }
 .notification-close { background: none; border: none; color: white; font-size: 1.5rem; line-height: 1; cursor: pointer; opacity: 0.7; transition: opacity 0.2s; }
 .notification-close:hover { opacity: 1; }
+
+/* --- ADD THIS NEW STYLE FOR THE MAP POPUP --- */
+.maplibregl-popup-content {
+  background-color: var(--background-dark) !important;
+  color: var(--text-primary) !important;
+  border-radius: 6px !important;
+  padding: 10px 15px !important;
+  font-size: 1rem;
+  font-weight: 600;
+  box-shadow: 0 5px 15px rgba(0,0,0,0.4);
+}
+.maplibregl-popup-anchor-bottom .maplibregl-popup-tip {
+  border-top-color: var(--background-dark) !important;
+}
+.maplibregl-popup-anchor-top .maplibregl-popup-tip {
+  border-bottom-color: var(--background-dark) !important;
+}
+/* etc. for all anchors if needed */
