@@ -136,4 +136,4 @@ function App() {
   return (<><div className="loading-overlay" style={{ display: isLoading ? 'flex' : 'none' }}>Loading...</div><div className="app-container"><Notification message={notification.message} type={notification.type} onClose={() => setNotification({ message: '', type: 'info' })} /><aside className="sidebar">{selectedPub ? renderSelectedPub() : renderPubList()}</aside><div ref={mapContainer} className="map-container" /></div></>);
 }
 
-export default App;
+export default App; 
