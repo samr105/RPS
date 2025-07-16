@@ -10,8 +10,10 @@ import Notification from './Notification';
 import PubList from './components/PubList';
 import PubDetailView from './components/PubDetailView';
 import SearchFilter from './components/SearchFilter';
+import ProgressBar from './components/ProgressBar'; // Import the new component
 
 function App() {
+  // ... (keep all the existing state hooks: map, pubs, isLoading, etc.) ...
   const mapContainer = useRef(null);
   const map = useRef(null);
   const allPubsRef = useRef([]);
@@ -59,46 +61,26 @@ function App() {
     map.current = new maplibregl.Map({ container: mapContainer.current, style: `https://tiles.stadiamaps.com/styles/alidade_smooth_dark.json?api_key=${stadiaApiKey}`, center: [-3.53, 50.72], zoom: 12, antialias: true });
 
     map.current.on('load', async () => {
-      // Create a single popup instance to be reused, but keep it closed by default.
-      const popup = new maplibregl.Popup({
-        closeButton: false,
-        closeOnClick: false
-      });
-      
+      const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false });
       map.current.addSource('pubs-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] }, promoteId: 'id' });
       map.current.addLayer({ id: 'pubs-layer', type: 'circle', source: 'pubs-source', paint: { 'circle-color': ['case', ['get', 'is_visited'], '#198754', '#dc3545'], 'circle-radius': ['case', ['boolean', ['feature-state', 'hover'], false], 11, ['boolean', ['feature-state', 'selected'], false], 9, 7], 'circle-stroke-color': ['case', ['boolean', ['feature-state', 'selected'], false], '#0d6efd', '#FFFFFF'], 'circle-stroke-width': ['case', ['boolean', ['feature-state', 'hover'], false], 2.5, 2], 'circle-opacity-transition': {duration: 200}, 'circle-radius-transition': { duration: 150 }, 'circle-color-transition': { duration: 300 } }});
-      
-      // We no longer need the separate 'pub-labels' layer.
-
       let currentHoverId = null;
       map.current.on('mousemove', 'pubs-layer', (e) => {
         map.current.getCanvas().style.cursor = 'pointer';
         if (e.features.length > 0 && e.features[0].id != null) {
-            const feature = e.features[0];
-            
-            // Show popup
-            popup.setLngLat(feature.geometry.coordinates).setHTML(feature.properties.name).addTo(map.current);
-
-            if (feature.id !== currentHoverId) {
-                if (currentHoverId != null) map.current.setFeatureState({ source: 'pubs-source', id: currentHoverId }, { hover: false });
-                currentHoverId = feature.id;
-                map.current.setFeatureState({ source: 'pubs-source', id: currentHoverId }, { hover: true });
-                setHoveredPubId(currentHoverId);
-            }
+          const feature = e.features[0];
+          popup.setLngLat(feature.geometry.coordinates).setHTML(feature.properties.name).addTo(map.current);
+          if (feature.id !== currentHoverId) {
+            if (currentHoverId != null) map.current.setFeatureState({ source: 'pubs-source', id: currentHoverId }, { hover: false });
+            currentHoverId = feature.id;
+            map.current.setFeatureState({ source: 'pubs-source', id: currentHoverId }, { hover: true });
+            setHoveredPubId(currentHoverId);
+          }
         }
       });
-      map.current.on('mouseleave', 'pubs-layer', () => {
-        map.current.getCanvas().style.cursor = '';
-        popup.remove(); // Remove popup when mouse leaves the layer
-        if (currentHoverId != null) map.current.setFeatureState({ source: 'pubs-source', id: currentHoverId }, { hover: false });
-        currentHoverId = null;
-        setHoveredPubId(null);
-      });
-      
+      map.current.on('mouseleave', 'pubs-layer', () => { map.current.getCanvas().style.cursor = ''; popup.remove(); if (currentHoverId != null) map.current.setFeatureState({ source: 'pubs-source', id: currentHoverId }, { hover: false }); currentHoverId = null; setHoveredPubId(null); });
       map.current.on('click', 'pubs-layer', (e) => { if (e.features.length > 0 && e.features[0].id != null) { const pub = allPubsRef.current.find(p => p.id === e.features[0].id); if (pub) { clearCrawlRoute(); setSelectedPub(pub); } } });
-      setIsLoading(true);
-      await handleDataUpdate();
-      setIsLoading(false);
+      setIsLoading(true); await handleDataUpdate(); setIsLoading(false);
     });
     // eslint-disable-next-line
   }, []);
@@ -124,8 +106,9 @@ function App() {
 
   const handleLogVisit = async (pubId) => { setIsTogglingVisit(true); const { error } = await supabase.from('visits').insert({ pub_id: pubId, visit_date: new Date().toISOString() }); if (error) { setNotification({ message: `Error logging visit: ${error.message}`, type: 'error' }); } else { await handleDataUpdate(pubId); setNotification({ message: 'Visit logged successfully!', type: 'success' }); } setIsTogglingVisit(false); };
   const handleRemoveVisit = async (pubId, visitId) => { setIsTogglingVisit(true); const { error } = await supabase.from('visits').delete().eq('id', visitId); if (error) { setNotification({ message: `Error removing visit: ${error.message}`, type: 'error' }); } else { await handleDataUpdate(pubId); setNotification({ message: 'Last visit removed.', type: 'success' }); } setIsTogglingVisit(false); };
-
+  
   const handleGenerateCrawl = async () => {
+    // ... (keep existing generate crawl logic)
     if (!selectedPub) return;
     const button = document.querySelector('.generate-crawl-btn');
     button.innerText = 'Calculating...'; button.disabled = true;
@@ -144,6 +127,9 @@ function App() {
     } catch (err) { setNotification({ message: `Error: ${err.message}`, type: 'error' }); }
     finally { button.innerText = 'Generate Mini-Crawl'; button.disabled = false; }
   };
+  
+  // Calculate visited count for the progress bar
+  const visitedCount = useMemo(() => allPubs.filter(p => p.is_visited).length, [allPubs]);
 
   const filteredPubs = useMemo(() => { return allPubs.filter(pub => { const matchesSearch = pub.name.toLowerCase().includes(searchTerm.toLowerCase()); if (filter === 'visited') return matchesSearch && pub.is_visited; if (filter === 'unvisited') return matchesSearch && !pub.is_visited; return matchesSearch; }).sort((a, b) => a.name.localeCompare(b.name)); }, [allPubs, searchTerm, filter]);
 
@@ -161,6 +147,10 @@ function App() {
           </div>
         </aside>
         <div ref={mapContainer} className="map-container" />
+        
+        {/* Add the ProgressBar to the main view */}
+        <ProgressBar visitedCount={visitedCount} totalCount={allPubs.length} />
+
       </div>
     </>
   );
