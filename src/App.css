@@ -1,0 +1,117 @@
+/* src/App.css */
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  width: 100vw;
+  height: 100vh;
+}
+
+.map-container {
+  width: 100%;
+  height: 100%;
+}
+
+.loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  color: white;
+  font-size: 1.5em;
+}
+
+/* Styles for the pop-up on the map */
+.mapboxgl-popup-content {
+  padding: 15px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  max-width: 320px;
+  font-family: inherit;
+}
+
+.popup-header h3 {
+  margin: 0 0 5px 0;
+  font-size: 1.2em;
+  color: #333;
+}
+
+.popup-header p {
+  margin: 0 0 10px 0;
+  font-size: 0.9em;
+  color: #666;
+}
+
+.popup-status {
+  padding: 5px 10px;
+  border-radius: 12px;
+  font-weight: bold;
+  display: inline-block;
+  margin-bottom: 10px;
+  font-size: 0.8em;
+}
+
+.status-visited {
+  background-color: #e6ffed;
+  color: #2f855a;
+}
+
+.status-unvisited {
+  background-color: #fff5f5;
+  color: #c53030;
+}
+
+.popup-section {
+    border-top: 1px solid #eee;
+    margin-top: 10px;
+    padding-top: 10px;
+}
+
+.popup-section h4 {
+    margin: 0 0 10px 0;
+    font-size: 1em;
+}
+
+.review-form label, .review-form input, .review-form textarea, .review-form select, .review-form button {
+    display: block;
+    width: 100%;
+    margin-bottom: 8px;
+    box-sizing: border-box; /* Important for width */
+}
+
+.review-form input, .review-form textarea, .review-form select {
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+
+.review-form button {
+    background-color: #2563eb;
+    color: white;
+    border: none;
+    padding: 10px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-weight: bold;
+    margin-top: 10px;
+}
+.review-form button:hover {
+    background-color: #1d4ed8;
+}
+
+.review-form button:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
+}
