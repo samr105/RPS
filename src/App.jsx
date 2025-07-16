@@ -25,10 +25,14 @@ function App() {
   
   const [searchTerm, setSearchTerm] = useState('');
   const [filter, setFilter] = useState('all');
+  const [hoveredPubId, setHoveredPubId] = useState(null);
   const [crawlPubIds, setCrawlPubIds] = useState([]);
 
+  // GUARANTEED DATA SYNC: This is the single source of truth for updating the map's visual data.
+  // It runs whenever allPubs changes, ensuring the map always has fresh data for colors.
   useEffect(() => {
     if (!map.current || !map.current.isStyleLoaded() || !map.current.getSource('pubs-source')) return;
+
     const features = allPubs.map(p => {
       if (!p || typeof p.geom !== 'string' || p.id == null) return null;
       const match = p.geom.match(/POINT\s*\(([^)]+)\)/);
@@ -38,7 +42,9 @@ function App() {
       if (parts.length !== 2 || isNaN(lon) || isNaN(lat)) return null;
       return { type: 'Feature', id: p.id, geometry: { type: 'Point', coordinates: [lon, lat] }, properties: { name: p.name, is_visited: p.is_visited }};
     }).filter(Boolean);
+    
     map.current.getSource('pubs-source').setData({ type: 'FeatureCollection', features });
+
   }, [allPubs]);
 
   const handleDataUpdate = useCallback(async (currentSelectedId = null) => {
@@ -52,6 +58,7 @@ function App() {
 
   const clearCrawlRoute = useCallback(() => { setCrawlPubIds([]); if (map.current?.getLayer('crawl-route')) { map.current.removeLayer('crawl-route'); map.current.removeSource('crawl-route'); } }, []);
 
+  // Main Map Initialization
   useEffect(() => {
     if (map.current) return;
     const stadiaApiKey = import.meta.env.VITE_STADIA_API_KEY;
@@ -59,62 +66,80 @@ function App() {
 
     map.current.on('load', async () => {
       map.current.addSource('pubs-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] }, promoteId: 'id' });
+
+      // Base layer for all pubs
       map.current.addLayer({ id: 'pubs-layer', type: 'circle', source: 'pubs-source', paint: { 'circle-color': ['case', ['get', 'is_visited'], '#198754', '#dc3545'], 'circle-radius': 7, 'circle-stroke-color': '#FFFFFF', 'circle-stroke-width': 2 } });
+      
+      // NEW HOVER APPROACH: A separate layer just for the enlarged hover effect
       map.current.addLayer({ id: 'pubs-hover-circle', type: 'circle', source: 'pubs-source', paint: { 'circle-color': ['case', ['get', 'is_visited'], '#198754', '#dc3545'], 'circle-radius': 11, 'circle-stroke-color': '#FFFFFF', 'circle-stroke-width': 2.5, 'circle-opacity': 1 }, filter: ['==', ['id'], ''] });
+      
+      // NEW HOVER APPROACH: A separate layer just for the hover label
       map.current.addLayer({ id: 'pubs-hover-label', type: 'symbol', source: 'pubs-source', layout: { 'text-field': ['get', 'name'], 'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'], 'text-offset': [0, 1.8], 'text-anchor': 'top' }, paint: { 'text-color': '#ffffff', 'text-halo-color': 'rgba(0,0,0,0.85)', 'text-halo-width': 1.5, 'text-halo-blur': 1 }, filter: ['==', ['id'], ''] });
+      
       map.current.on('mousemove', 'pubs-layer', (e) => {
-        if (e.features.length > 0 && e.features[0].id != null) { map.current.getCanvas().style.cursor = 'pointer'; const hoveredId = e.features[0].id; map.current.setFilter('pubs-hover-circle', ['==', ['id'], hoveredId]); map.current.setFilter('pubs-hover-label', ['==', ['id'], hoveredId]); }
+        if (e.features.length > 0 && e.features[0].id != null) {
+          map.current.getCanvas().style.cursor = 'pointer';
+          setHoveredPubId(e.features[0].id);
+        }
       });
-      map.current.on('mouseleave', 'pubs-layer', () => { map.current.getCanvas().style.cursor = ''; map.current.setFilter('pubs-hover-circle', ['==', ['id'], '']); map.current.setFilter('pubs-hover-label', ['==', ['id'], '']); });
+
+      map.current.on('mouseleave', 'pubs-layer', () => {
+        map.current.getCanvas().style.cursor = '';
+        setHoveredPubId(null);
+      });
+
       map.current.on('click', 'pubs-layer', (e) => { if (e.features.length > 0 && e.features[0].id != null) { const pub = allPubsRef.current.find(p => p.id === e.features[0].id); if (pub) { clearCrawlRoute(); setSelectedPub(pub); } } });
+      
       setIsLoading(true); await handleDataUpdate(); setIsLoading(false);
     });
     // eslint-disable-next-line
   }, []);
-  
-  useEffect(() => {
-    if (!map.current?.isStyleLoaded() || !map.current.getLayer('pubs-layer')) return;
-    map.current.setPaintProperty('pubs-layer', 'circle-opacity', crawlPubIds.length > 0 ? 0.3 : 1.0);
-  }, [crawlPubIds]);
 
+  // Combined effect to manage hover and crawl states on map layers
+  useEffect(() => {
+    if (!map.current?.isStyleLoaded()) return;
+
+    // Hover filter logic
+    map.current.setFilter('pubs-hover-circle', ['==', ['id'], hoveredPubId || '']);
+    map.current.setFilter('pubs-hover-label', ['==', ['id'], hoveredPubId || '']);
+
+    // Dimming and hiding logic for base layer
+    let opacity = 1.0;
+    if (hoveredPubId != null) {
+        // Hide base circle under the hover circle and dim all others
+        opacity = ['case', ['==', ['id'], hoveredPubId], 0.0, 0.4];
+    } else if (crawlPubIds.length > 0) {
+        // Highlight crawl pubs and dim all others
+        opacity = ['case', ['in', ['id'], ['literal', crawlPubIds]], 1.0, 0.4];
+    }
+    map.current.setPaintProperty('pubs-layer', 'circle-opacity', opacity);
+
+  }, [hoveredPubId, crawlPubIds]);
+  
+  // Effect to fly to a pub when it is selected
   useEffect(() => {
     if (selectedPub && map.current?.isStyleLoaded()) {
+      map.current.setFilter('pubs-hover-circle', ['==', ['id'], '']);
+      map.current.setFilter('pubs-hover-label', ['==', ['id'], '']);
       const match = selectedPub.geom.match(/POINT\s*\(([^)]+)\)/);
       if (match?.[1]) { const coords = match[1].trim().split(/\s+/).map(Number); if (coords.length === 2 && !isNaN(coords[0]) && !isNaN(coords[1])) map.current.flyTo({ center: [coords[0], coords[1]], zoom: 15 }); }
     }
   }, [selectedPub]);
 
-  // REFACTORED: Now takes an options object
   const handleLogVisit = async (pubId, options = {}) => {
-    const { navigateOnSuccess = true } = options; // Default to true
+    const { navigateOnSuccess = true } = options;
     setIsTogglingVisit(true);
-    
     const { error } = await supabase.from('visits').insert({ pub_id: pubId, visit_date: new Date().toISOString() });
-    const pubName = allPubsRef.current.find(p => p.id === pubId)?.name || 'that pub';
-    
-    if (error) {
-        setNotification({ message: `Error logging visit: ${error.message}`, type: 'error' });
-    } else {
-        await handleDataUpdate(navigateOnSuccess ? pubId : null);
-        setNotification({ message: `Visit logged for ${pubName}!`, type: 'success' });
-    }
+    if (error) { setNotification({ message: `Error logging visit: ${error.message}`, type: 'error' }); }
+    else { const pubName = allPubs.find(p => p.id === pubId)?.name || 'that pub'; await handleDataUpdate(navigateOnSuccess ? pubId : null); setNotification({ message: `Visit logged for ${pubName}!`, type: 'success' }); }
     setIsTogglingVisit(false);
   };
-
-  // REFACTORED: Now takes an options object
   const handleRemoveVisit = async (pubId, visitId, options = {}) => {
-    const { navigateOnSuccess = true } = options; // Default to true
+    const { navigateOnSuccess = true } = options;
     setIsTogglingVisit(true);
-
     const { error } = await supabase.from('visits').delete().eq('id', visitId);
-    const pubName = allPubsRef.current.find(p => p.id === pubId)?.name || 'that pub';
-
-    if (error) {
-        setNotification({ message: `Error removing visit: ${error.message}`, type: 'error' });
-    } else {
-        await handleDataUpdate(navigateOnSuccess ? pubId : null);
-        setNotification({ message: `Last visit removed for ${pubName}.`, type: 'success' });
-    }
+    if (error) { setNotification({ message: `Error removing visit: ${error.message}`, type: 'error' }); }
+    else { const pubName = allPubs.find(p => p.id === pubId)?.name || 'that pub'; await handleDataUpdate(navigateOnSuccess ? pubId : null); setNotification({ message: `Last visit removed for ${pubName}.`, type: 'success' }); }
     setIsTogglingVisit(false);
   };
 
@@ -150,28 +175,7 @@ function App() {
           <SearchFilter searchTerm={searchTerm} setSearchTerm={setSearchTerm} filter={filter} setFilter={setFilter} />
           <div className="sidebar-content">
             <AnimatePresence mode="wait">
-              {selectedPub ? (
-                 <PubDetailView
-                  key={selectedPub.id}
-                  pub={selectedPub}
-                  onBack={() => { clearCrawlRoute(); setSelectedPub(null); }}
-                  onToggleVisit={handleLogVisit}
-                  onRemoveVisit={handleRemoveVisit}
-                  onGenerateCrawl={handleGenerateCrawl}
-                  isToggling={isTogglingVisit}
-                />
-              ) : (
-                <motion.div key="list">
-                  <h2 className="sidebar-header">Exeter Pubs ({filteredPubs.length})</h2>
-                  <PubList
-                    pubs={filteredPubs}
-                    onSelectPub={(pub) => { clearCrawlRoute(); setSelectedPub(pub); }}
-                    onLogVisit={handleLogVisit}
-                    onRemoveVisit={handleRemoveVisit}
-                    isTogglingVisit={isTogglingVisit}
-                  />
-                </motion.div>
-              )}
+              {selectedPub ? ( <PubDetailView key={selectedPub.id} pub={selectedPub} onBack={() => { clearCrawlRoute(); setSelectedPub(null); }} onToggleVisit={handleLogVisit} onRemoveVisit={handleRemoveVisit} onGenerateCrawl={handleGenerateCrawl} isToggling={isTogglingVisit}/> ) : ( <motion.div key="list"><h2 className="sidebar-header">Exeter Pubs ({filteredPubs.length})</h2> <PubList pubs={filteredPubs} onSelectPub={ (pub) => { clearCrawlRoute(); setSelectedPub(pub); }} onLogVisit={handleLogVisit} onRemoveVisit={handleRemoveVisit} isTogglingVisit={isTogglingVisit}/></motion.div> )}
             </AnimatePresence>
           </div>
         </aside>
