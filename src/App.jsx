@@ -4,7 +4,7 @@ import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './App.css';
 import { supabase } from './supabaseClient';
-import { AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion'; // Added `motion` to this import
 
 import Notification from './Notification';
 import PubList from './components/PubList';
@@ -92,12 +92,12 @@ function App() {
     if (error) {
         setNotification({ message: `Error logging visit: ${error.message}`, type: 'error' });
     } else {
-        await fetchAllPubData();
+        const freshData = await fetchAllPubData();
         setNotification({ message: 'Visit logged successfully!', type: 'success' });
         // Manually update the selectedPub to refresh detail view immediately
         setSelectedPub(prev => {
-          const freshData = allPubs.find(p => p.id === prev.id);
-          return freshData || null;
+          const updatedPub = freshData.find(p => p.id === prev.id);
+          return updatedPub || null;
         });
     }
     setIsTogglingVisit(false);
@@ -110,11 +110,11 @@ function App() {
     if (error) {
         setNotification({ message: `Error removing visit: ${error.message}`, type: 'error' });
     } else {
-        await fetchAllPubData();
+        const freshData = await fetchAllPubData();
         setNotification({ message: 'Last visit removed.', type: 'success' });
         setSelectedPub(prev => {
-          const freshData = allPubs.find(p => p.id === prev.id);
-          return freshData || null;
+          const updatedPub = freshData.find(p => p.id === prev.id);
+          return updatedPub || null;
         });
     }
     setIsTogglingVisit(false);
