@@ -1,6 +1,6 @@
 // src/components/PubDetailView.jsx
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion } from 'framer-motion'; // This line was missing
 
 const PubDetailView = ({ pub, onBack, onToggleVisit, onGenerateCrawl, onRemoveVisit, isToggling }) => {
     const [lng, lat] = pub.geom.replace('SRID=4326;POINT (', '').replace(')', '').split(' ').map(Number);
