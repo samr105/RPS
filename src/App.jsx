@@ -27,10 +27,12 @@ function App() {
   const [hoveredPubId, setHoveredPubId] = useState(null);
   const [crawlPubIds, setCrawlPubIds] = useState([]);
 
-  const updateMapDataSource = useCallback((pubs) => {
-    if (!map.current?.isStyleLoaded()) return;
-    const features = pubs.map(p => {
-        if (!p || typeof p.geom !== 'string') return null;
+  // THIS IS THE SINGLE SOURCE OF TRUTH FOR UPDATING THE MAP'S VISUAL DATA
+  useEffect(() => {
+    if (!map.current || !map.current.isStyleLoaded() || !map.current.getSource('pubs-source')) return;
+
+    const features = allPubs.map(p => {
+        if (!p || typeof p.geom !== 'string' || p.id == null) return null;
         const match = p.geom.match(/POINT\s*\(([^)]+)\)/);
         if (!match || !match[1]) return null;
         const parts = match[1].trim().split(/\s+/);
@@ -39,27 +41,20 @@ function App() {
         if (isNaN(lon) || isNaN(lat)) return null;
         return { type: 'Feature', id: p.id, geometry: { type: 'Point', coordinates: [lon, lat] }, properties: { name: p.name, is_visited: p.is_visited }, };
     }).filter(Boolean);
-    const source = map.current.getSource('pubs-source');
-    if (source) { source.setData({ type: 'FeatureCollection', features }); }
-  }, []);
+    
+    map.current.getSource('pubs-source').setData({ type: 'FeatureCollection', features });
 
-  // NEW: Centralized function to fetch all data and resync state
+  }, [allPubs]); // This effect runs ONLY when the main allPubs data array changes.
+
   const handleDataUpdate = useCallback(async (currentSelectedId = null) => {
     const { data, error } = await supabase.rpc('get_all_pub_details');
     if (error) { setNotification({ message: `Error loading pubs: ${error.message}`, type: 'error' }); return; }
-    
     const pubData = data.map(pub => ({...pub, geom: pub.geom || ''}));
-    setAllPubs(pubData);
     allPubsRef.current = pubData;
-    updateMapDataSource(pubData);
-    
-    // If a pub was selected, find its fresh data in the new list and update the selectedPub state
-    if (currentSelectedId) {
-        const freshSelectedPub = pubData.find(p => p.id === currentSelectedId);
-        setSelectedPub(freshSelectedPub || null);
-    }
-  }, [updateMapDataSource]);
-
+    setAllPubs(pubData); // This will trigger the useEffect above to update the map
+    if (currentSelectedId) { setSelectedPub(pubData.find(p => p.id === currentSelectedId) || null); }
+  }, []);
+  
   const clearCrawlRoute = useCallback(() => { setCrawlPubIds([]); if (map.current?.getLayer('crawl-route')) { map.current.removeLayer('crawl-route'); map.current.removeSource('crawl-route'); } }, []);
 
   useEffect(() => {
@@ -74,40 +69,38 @@ function App() {
       
       let currentHoverId = null;
       map.current.on('mousemove', 'pubs-layer', (e) => {
-          map.current.getCanvas().style.cursor = 'pointer';
-          // **FIX**: Using `!= null` defensively covers both `undefined` and `null`.
-          if (e.features.length > 0 && e.features[0].id != null) {
-              if (e.features[0].id !== currentHoverId) {
-                  // Reset the previous hover state if it exists and is valid
-                  if (currentHoverId != null) {
-                      map.current.setFeatureState({ source: 'pubs-source', id: currentHoverId }, { hover: false });
-                  }
-                  currentHoverId = e.features[0].id;
-                  map.current.setFeatureState({ source: 'pubs-source', id: currentHoverId }, { hover: true });
-                  setHoveredPubId(currentHoverId);
-              }
+        map.current.getCanvas().style.cursor = 'pointer';
+        if (e.features.length > 0 && e.features[0].id != null) {
+          if (e.features[0].id !== currentHoverId) {
+            if (currentHoverId != null) map.current.setFeatureState({ source: 'pubs-source', id: currentHoverId }, { hover: false });
+            currentHoverId = e.features[0].id;
+            map.current.setFeatureState({ source: 'pubs-source', id: currentHoverId }, { hover: true });
+            // The hover visual is now entirely handled by the map. We only set React state for the dimming effect.
+            setHoveredPubId(currentHoverId);
           }
+        }
       });
       map.current.on('mouseleave', 'pubs-layer', () => {
-          map.current.getCanvas().style.cursor = '';
-          if (currentHoverId != null) {
-              map.current.setFeatureState({ source: 'pubs-source', id: currentHoverId }, { hover: false });
-          }
-          currentHoverId = null;
-          setHoveredPubId(null);
+        map.current.getCanvas().style.cursor = '';
+        if (currentHoverId != null) map.current.setFeatureState({ source: 'pubs-source', id: currentHoverId }, { hover: false });
+        currentHoverId = null;
+        setHoveredPubId(null);
       });
+      
       map.current.on('click', 'pubs-layer', (e) => { if (e.features.length > 0 && e.features[0].id != null) { const pub = allPubsRef.current.find(p => p.id === e.features[0].id); if (pub) { clearCrawlRoute(); setSelectedPub(pub); } } });
-      setIsLoading(true); await handleDataUpdate(); setIsLoading(false);
+      
+      setIsLoading(true);
+      await handleDataUpdate();
+      setIsLoading(false);
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line
   }, []);
   
   useEffect(() => {
     if (!map.current?.isStyleLoaded()) return;
-    let opacityExpression;
-    if (hoveredPubId != null) opacityExpression = ['case', ['==', ['id'], hoveredPubId], 1.0, 0.4];
-    else if (crawlPubIds.length > 0) opacityExpression = ['case', ['in', ['id'], ['literal', crawlPubIds]], 1.0, 0.4];
-    else opacityExpression = 1.0;
+    let opacityExpression = 1.0; // Default is fully opaque
+    if (hoveredPubId != null) { opacityExpression = ['case', ['==', ['id'], hoveredPubId], 1.0, 0.4]; }
+    else if (crawlPubIds.length > 0) { opacityExpression = ['case', ['in', ['id'], ['literal', crawlPubIds]], 1.0, 0.4]; }
     map.current.setPaintProperty('pubs-layer', 'circle-opacity', opacityExpression);
   }, [hoveredPubId, crawlPubIds]);
   
@@ -142,11 +135,8 @@ function App() {
         map.current.addLayer({ id: 'crawl-route', type: 'line', source: 'crawl-route', layout: {'line-join': 'round', 'line-cap': 'round'}, paint: { 'line-color': '#0d6efd', 'line-width': 5 } });
         setCrawlPubIds(data.pubIds);
         setNotification({ message: `Crawl found! Walking time: ${Math.round(data.totalDuration / 60)} mins.`, type: 'success' });
-    } catch (err) {
-        setNotification({ message: `Error: ${err.message}`, type: 'error' });
-    } finally {
-        button.innerText = 'Generate Mini-Crawl'; button.disabled = false;
-    }
+    } catch (err) { setNotification({ message: `Error: ${err.message}`, type: 'error' }); }
+    finally { button.innerText = 'Generate Mini-Crawl'; button.disabled = false; }
   };
 
   const filteredPubs = useMemo(() => { return allPubs.filter(pub => { const matchesSearch = pub.name.toLowerCase().includes(searchTerm.toLowerCase()); if (filter === 'visited') return matchesSearch && pub.is_visited; if (filter === 'unvisited') return matchesSearch && !pub.is_visited; return matchesSearch; }).sort((a, b) => a.name.localeCompare(b.name)); }, [allPubs, searchTerm, filter]);
