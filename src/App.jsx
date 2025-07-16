@@ -62,21 +62,10 @@ function App() {
       map.current.addLayer({ id: 'pubs-layer', type: 'circle', source: 'pubs-source', paint: { 'circle-color': ['case', ['get', 'is_visited'], '#198754', '#dc3545'], 'circle-radius': 7, 'circle-stroke-color': '#FFFFFF', 'circle-stroke-width': 2 } });
       map.current.addLayer({ id: 'pubs-hover-circle', type: 'circle', source: 'pubs-source', paint: { 'circle-color': ['case', ['get', 'is_visited'], '#198754', '#dc3545'], 'circle-radius': 11, 'circle-stroke-color': '#FFFFFF', 'circle-stroke-width': 2.5, 'circle-opacity': 1 }, filter: ['==', ['id'], ''] });
       map.current.addLayer({ id: 'pubs-hover-label', type: 'symbol', source: 'pubs-source', layout: { 'text-field': ['get', 'name'], 'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'], 'text-offset': [0, 1.8], 'text-anchor': 'top' }, paint: { 'text-color': '#ffffff', 'text-halo-color': 'rgba(0,0,0,0.85)', 'text-halo-width': 1.5, 'text-halo-blur': 1 }, filter: ['==', ['id'], ''] });
-      
       map.current.on('mousemove', 'pubs-layer', (e) => {
-        if (e.features.length > 0 && e.features[0].id != null) {
-          map.current.getCanvas().style.cursor = 'pointer';
-          const hoveredId = e.features[0].id;
-          map.current.setFilter('pubs-hover-circle', ['==', ['id'], hoveredId]);
-          map.current.setFilter('pubs-hover-label', ['==', ['id'], hoveredId]);
-        }
+        if (e.features.length > 0 && e.features[0].id != null) { map.current.getCanvas().style.cursor = 'pointer'; const hoveredId = e.features[0].id; map.current.setFilter('pubs-hover-circle', ['==', ['id'], hoveredId]); map.current.setFilter('pubs-hover-label', ['==', ['id'], hoveredId]); }
       });
-      map.current.on('mouseleave', 'pubs-layer', () => {
-        map.current.getCanvas().style.cursor = '';
-        map.current.setFilter('pubs-hover-circle', ['==', ['id'], '']);
-        map.current.setFilter('pubs-hover-label', ['==', ['id'], '']);
-      });
-
+      map.current.on('mouseleave', 'pubs-layer', () => { map.current.getCanvas().style.cursor = ''; map.current.setFilter('pubs-hover-circle', ['==', ['id'], '']); map.current.setFilter('pubs-hover-label', ['==', ['id'], '']); });
       map.current.on('click', 'pubs-layer', (e) => { if (e.features.length > 0 && e.features[0].id != null) { const pub = allPubsRef.current.find(p => p.id === e.features[0].id); if (pub) { clearCrawlRoute(); setSelectedPub(pub); } } });
       setIsLoading(true); await handleDataUpdate(); setIsLoading(false);
     });
@@ -95,9 +84,40 @@ function App() {
     }
   }, [selectedPub]);
 
-  const handleLogVisit = async (pubId) => { setIsTogglingVisit(true); const { error } = await supabase.from('visits').insert({ pub_id: pubId, visit_date: new Date().toISOString() }); if (error) { setNotification({ message: `Error logging visit: ${error.message}`, type: 'error' }); } else { await handleDataUpdate(pubId); setNotification({ message: 'Visit logged successfully!', type: 'success' }); } setIsTogglingVisit(false); };
-  const handleRemoveVisit = async (pubId, visitId) => { setIsTogglingVisit(true); const { error } = await supabase.from('visits').delete().eq('id', visitId); if (error) { setNotification({ message: `Error removing visit: ${error.message}`, type: 'error' }); } else { await handleDataUpdate(pubId); setNotification({ message: 'Last visit removed.', type: 'success' }); } setIsTogglingVisit(false); };
-  
+  // REFACTORED: Now takes an options object
+  const handleLogVisit = async (pubId, options = {}) => {
+    const { navigateOnSuccess = true } = options; // Default to true
+    setIsTogglingVisit(true);
+    
+    const { error } = await supabase.from('visits').insert({ pub_id: pubId, visit_date: new Date().toISOString() });
+    const pubName = allPubsRef.current.find(p => p.id === pubId)?.name || 'that pub';
+    
+    if (error) {
+        setNotification({ message: `Error logging visit: ${error.message}`, type: 'error' });
+    } else {
+        await handleDataUpdate(navigateOnSuccess ? pubId : null);
+        setNotification({ message: `Visit logged for ${pubName}!`, type: 'success' });
+    }
+    setIsTogglingVisit(false);
+  };
+
+  // REFACTORED: Now takes an options object
+  const handleRemoveVisit = async (pubId, visitId, options = {}) => {
+    const { navigateOnSuccess = true } = options; // Default to true
+    setIsTogglingVisit(true);
+
+    const { error } = await supabase.from('visits').delete().eq('id', visitId);
+    const pubName = allPubsRef.current.find(p => p.id === pubId)?.name || 'that pub';
+
+    if (error) {
+        setNotification({ message: `Error removing visit: ${error.message}`, type: 'error' });
+    } else {
+        await handleDataUpdate(navigateOnSuccess ? pubId : null);
+        setNotification({ message: `Last visit removed for ${pubName}.`, type: 'success' });
+    }
+    setIsTogglingVisit(false);
+  };
+
   const handleGenerateCrawl = async () => {
     if (!selectedPub) return;
     const button = document.querySelector('.generate-crawl-btn');

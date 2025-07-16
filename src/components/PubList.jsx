@@ -15,11 +15,12 @@ const PubList = ({ pubs, onSelectPub, onLogVisit, onRemoveVisit, isTogglingVisit
       // Find the most recent visit ID to remove.
       const lastVisitId = pub.visit_history?.[0]?.id;
       if (lastVisitId) {
-        onRemoveVisit(pub.id, lastVisitId);
+        // Pass the new options object to prevent navigation
+        onRemoveVisit(pub.id, lastVisitId, { navigateOnSuccess: false });
       }
     } else {
-      // If unvisited, simply log a new visit.
-      onLogVisit(pub.id);
+      // Pass the new options object to prevent navigation
+      onLogVisit(pub.id, { navigateOnSuccess: false });
     }
   };
   
@@ -45,7 +46,7 @@ const PubList = ({ pubs, onSelectPub, onLogVisit, onRemoveVisit, isTogglingVisit
           <span 
             className={`status-indicator ${pub.is_visited ? 'indicator-visited' : 'indicator-unvisited'} ${isTogglingVisit ? 'disabled' : ''}`}
             onClick={(e) => handleQuickToggle(e, pub)}
-            title={pub.is_visited ? "Click to remove last visit" : "Click to log a visit"}
+            title={pub.is_visited ? `Quick-unvisit ${pub.name}` : `Quick-visit ${pub.name}`}
           ></span>
         </motion.li>
       ))}
