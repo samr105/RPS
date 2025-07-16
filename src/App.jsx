@@ -1,63 +1,70 @@
 // src/App.jsx
 import { useState, useEffect, useRef, useCallback } from 'react';
-import maplibregl from 'maplibre-gl';
+import maplibregl from 'maplibre-gl'; // Using MapLibre
 import 'maplibre-gl/dist/maplibre-gl.css';
-import './App.css'; 
+import './App.css';
 import { supabase } from './supabaseClient';
-
 
 function App() {
   const mapContainer = useRef(null);
   const map = useRef(null);
-  const [lng, setLng] = useState(-0.1276); // Default to London's longitude
-  const [lat, setLat] = useState(51.5072); // Default to London's latitude
+  const [lng, setLng] = useState(-0.1276);
+  const [lat, setLat] = useState(51.5072);
   const [zoom, setZoom] = useState(11);
   const [isLoading, setIsLoading] = useState(true);
+  const [hoveredPubId, setHoveredPubId] = useState(null); // State for hover effects
 
-  // Re-usable function to fetch all pubs and their statuses
   const fetchPubs = useCallback(async () => {
     setIsLoading(true);
-    // Call our database function
     const { data, error } = await supabase.rpc('get_all_pub_details');
-
     if (error) {
       console.error('Error fetching pubs:', error);
-      alert("Could not load pubs from the database. Check console for details.");
+      alert("Could not load pubs.");
       setIsLoading(false);
       return [];
     }
-    
-    // Process the data for the map
-    const pubsForMap = data.map(pub => {
-      // The geom comes back as 'POINT(lng lat)', we need to parse it
-      const coordString = pub.geom.replace('POINT(', '').replace(')', '');
-      const [lng, lat] = coordString.split(' ').map(Number);
-      return {
-        type: 'Feature',
-        geometry: {
-          type: 'Point',
-          coordinates: [lng, lat],
-        },
-        properties: {
-          ...pub, // id, name, address, etc.
-          is_visited: !!pub.last_visit_date,
-        },
-      };
-    });
+
+    const pubsForMap = data
+      .map(pub => {
+        if (!pub.geom) {
+          console.warn(`Skipping pub with missing location: ${pub.name}`);
+          return null;
+        }
+        try {
+          const coordString = pub.geom.replace('POINT(', '').replace(')', '');
+          const [lng, lat] = coordString.split(' ').map(Number);
+          if (isNaN(lng) || isNaN(lat)) throw new Error("Invalid coordinates");
+
+          return {
+            type: 'Feature',
+            id: pub.id, // Providing a unique ID for each feature is crucial
+            geometry: {
+              type: 'Point',
+              coordinates: [lng, lat],
+            },
+            properties: { ...pub, is_visited: !!pub.last_visit_date },
+          };
+        } catch (e) {
+          console.error(`Error processing pub: ${pub.name}`, e);
+          return null;
+        }
+      })
+      .filter(p => p !== null);
+
     setIsLoading(false);
     return pubsForMap;
   }, []);
 
-  // Main effect to initialize and update the map
   useEffect(() => {
-    if (map.current) return; // If map already exists, do nothing
+    if (map.current) return;
 
     const stadiaApiKey = import.meta.env.VITE_STADIA_API_KEY;
     if (!stadiaApiKey) {
-        alert("Stadia Maps API Key is missing. The map cannot load.");
-        return;
+      alert("Stadia Maps API Key is missing. The map cannot load.");
+      return;
     }
-    const mapStyle = `https://tiles.stadiamaps.com/styles/alidade_smooth.json?api_key=${stadiaApiKey}`;
+    // THE NEW SLICK MAP STYLE
+    const mapStyle = `https://tiles.stadiamaps.com/styles/outdoors.json?api_key=${stadiaApiKey}`;
 
     map.current = new maplibregl.Map({
       container: mapContainer.current,
@@ -68,76 +75,129 @@ function App() {
 
     map.current.on('load', async () => {
       const pubsData = await fetchPubs();
-
       map.current.addSource('pubs-source', {
         type: 'geojson',
-        data: {
-          type: 'FeatureCollection',
-          features: pubsData,
-        },
+        data: { type: 'FeatureCollection', features: pubsData },
+        promoteId: 'id' // Helps MapLibre reference features by their ID faster
       });
 
-      // Layer for unvisited pubs (red circles)
+      // === NEW SLICK MARKER LAYERS (REPLACES THE OLD ONES) ===
+      const interactiveLayers = ['unvisited-pubs-layer', 'visited-pubs-layer'];
+
+      // Unvisited pubs are two-toned: a white halo with a red core
       map.current.addLayer({
-        id: 'unvisited-pubs',
+        id: 'unvisited-pubs-layer',
         type: 'circle',
         source: 'pubs-source',
         paint: {
-          'circle-color': '#c53030', // Red
-          'circle-radius': 7,
+          'circle-radius': ['case', ['boolean', ['feature-state', 'hover'], false], 11, 7], // Grow on hover
+          'circle-color': '#c53030', // Red core
+          'circle-stroke-color': 'white',
           'circle-stroke-width': 2,
-          'circle-stroke-color': '#ffffff',
+          'circle-pitch-alignment': 'map',
         },
         filter: ['==', 'is_visited', false],
       });
-
-      // Layer for visited pubs (green circles)
+      
+      // Visited pubs are a solid green circle that grows
       map.current.addLayer({
-        id: 'visited-pubs',
+        id: 'visited-pubs-layer',
         type: 'circle',
         source: 'pubs-source',
         paint: {
+          'circle-radius': ['case', ['boolean', ['feature-state', 'hover'], false], 11, 7], // Grow on hover
           'circle-color': '#2f855a', // Green
-          'circle-radius': 7,
+          'circle-stroke-color': 'white',
           'circle-stroke-width': 2,
-          'circle-stroke-color': '#ffffff',
+          'circle-pitch-alignment': 'map',
         },
         filter: ['==', 'is_visited', true],
       });
+      
+      // The hover label that appears for any marker
+      map.current.addLayer({
+        id: 'pub-labels',
+        type: 'symbol',
+        source: 'pubs-source',
+        layout: {
+          'text-field': ['get', 'name'],
+          'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+          'text-offset': [0, 1.25],
+          'text-anchor': 'top',
+        },
+        paint: {
+            'text-color': '#222',
+            'text-halo-color': '#fff',
+            'text-halo-width': 1.5,
+        },
+        // Only show the label if the hover state is true
+        filter: ['==', ['feature-state', 'hover'], true]
+      });
 
-      // When a pub is clicked, show a popup
-      map.current.on('click', ['visited-pubs', 'unvisited-pubs'], (e) => {
+
+      // === NEW INTERACTIVITY LOGIC (REPLACES OLD MOUSEENTER/LEAVE) ===
+      
+      // 1. CLICK to open a popup
+      map.current.on('click', interactiveLayers, (e) => {
         const feature = e.features[0];
         const coordinates = feature.geometry.coordinates.slice();
         const props = feature.properties;
-        
-        new maplibregl.Popup()
+        new maplibregl.Popup({ closeOnClick: true, offset: [0, -15] })
           .setLngLat(coordinates)
-          .setHTML(createPopupHTML(props))
-          .addTo(map.current)
-          .getElement().addEventListener('submit', (event) => {
-              if (event.target.id === 'review-form') handleReviewSubmit(event);
-          });
-        
-        document.getElementById('generate-crawl-btn')?.addEventListener('click', handleGenerateCrawl);
-      });
+          .setHTML(createPopupHTML(props, coordinates))
+          .addTo(map.current);
+          
+        const reviewForm = document.getElementById('review-form');
+        if(reviewForm) reviewForm.addEventListener('submit', (event) => handleReviewSubmit(event));
 
-      // Change cursor to a pointer when hovering over a pub
-      map.current.on('mouseenter', ['visited-pubs', 'unvisited-pubs'], () => {
-        map.current.getCanvas().style.cursor = 'pointer';
+        const crawlBtn = document.getElementById('generate-crawl-btn');
+        if (crawlBtn) crawlBtn.addEventListener('click', handleGenerateCrawl);
       });
-      map.current.on('mouseleave', ['visited-pubs', 'unvisited-pubs'], () => {
+      
+      // 2. HOVER to show labels and enlarge markers
+      let currentlyHoveredId = null;
+      map.current.on('mousemove', interactiveLayers, (e) => {
+        map.current.getCanvas().style.cursor = 'pointer';
+        if (e.features.length > 0) {
+          if (currentlyHoveredId !== null) {
+            // Un-hover the old one
+            map.current.setFeatureState({ source: 'pubs-source', id: currentlyHoveredId }, { hover: false });
+          }
+          currentlyHoveredId = e.features[0].id;
+          // Hover the new one
+          map.current.setFeatureState({ source: 'pubs-source', id: currentlyHoveredId }, { hover: true });
+        }
+      });
+      
+      map.current.on('mouseleave', interactiveLayers, () => {
         map.current.getCanvas().style.cursor = '';
+        if (currentlyHoveredId !== null) {
+          // Un-hover the last one when mouse leaves
+          map.current.setFeatureState({ source: 'pubs-source', id: currentlyHoveredId }, { hover: false });
+        }
+        currentlyHoveredId = null;
       });
     });
-  }, [fetchPubs, lat, lng, zoom]); // Re-run effect if these change
 
-  const createPopupHTML = (props) => {
+  }, []); // The empty dependency array means this useEffect runs only ONCE
+
+  const createPopupHTML = (props, coordinates) => {
+    // ...
+  };
+  const handleReviewSubmit = async (event) => {
+    // ...
+  };
+  const handleGenerateCrawl = async (event) => {
+    // ...
+  };
+  
+  // To avoid breaking the code, let's keep the functions we haven't modified yet
+  const createPopupHTML = (props, coordinates) => {
       const avgRating = props.avg_rating ? `${Number(props.avg_rating).toFixed(1)} ★` : 'Not Rated';
       return `
         <div class="popup-header">
           <h3>${props.name}</h3>
-          <p>${props.address}</p>
+          <p>${props.address || 'Address not available'}</p>
           <span class="popup-status ${props.is_visited ? 'status-visited' : 'status-unvisited'}">
             ${props.is_visited ? 'Visited' : 'Not Visited'}
           </span>
@@ -164,7 +224,7 @@ function App() {
         </div>
         ${!props.is_visited ? `
         <div class="popup-section">
-          <button id="generate-crawl-btn" data-lng="${props.geom.replace('POINT(', '').split(' ')[0]}" data-lat="${props.geom.replace(')', '').split(' ')[1]}">Generate Mini-Crawl</button>
+          <button id="generate-crawl-btn" data-lng="${coordinates[0]}" data-lat="${coordinates[1]}">Generate Mini-Crawl</button>
         </div>` : ''}
       `;
   };
@@ -174,25 +234,22 @@ function App() {
     const form = event.target;
     form.querySelector('button').disabled = true;
     form.querySelector('button').innerText = "Submitting...";
-    
     const formData = new FormData(form);
     const visitData = {
       pub_id: formData.get('pub_id'),
       rating: parseInt(formData.get('rating')),
       comment: formData.get('comment'),
       author: formData.get('author') || 'Anonymous',
-      visit_date: new Date().toISOString().slice(0, 10), // Today's date
+      visit_date: new Date().toISOString().slice(0, 10),
     };
-
     const { error } = await supabase.from('visits').insert(visitData);
-
     if (error) {
       alert('Error submitting review: ' + error.message);
       form.querySelector('button').disabled = false;
       form.querySelector('button').innerText = "Submit Visit";
     } else {
       alert('Visit submitted! Map will now reload.');
-      window.location.reload(); // Simple way to refresh the map with new data
+      window.location.reload();
     }
   };
 
@@ -200,24 +257,15 @@ function App() {
     const button = event.target;
     button.innerText = 'Calculating...';
     button.disabled = true;
-
     const { lng, lat } = button.dataset;
-
     try {
       const response = await fetch(`/api/generate-crawl?lng=${lng}&lat=${lat}`);
       const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to generate crawl.');
-      }
-      
-      // Remove old route layer if it exists
+      if (!response.ok) throw new Error(data.error || 'Failed to generate crawl.');
       if (map.current.getLayer('crawl-route')) {
         map.current.removeLayer('crawl-route');
         map.current.removeSource('crawl-route');
       }
-
-      // Add new route source and layer
       map.current.addSource('crawl-route', { type: 'geojson', data: data.route });
       map.current.addLayer({
         id: 'crawl-route',
@@ -230,7 +278,6 @@ function App() {
         },
       });
       alert(`Found a crawl! Total walk time: ${Math.round(data.totalDuration / 60)} minutes.`);
-
     } catch (err) {
       alert(`Error: ${err.message}`);
     } finally {
