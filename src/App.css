@@ -44,7 +44,8 @@
 .pub-list { list-style-type: none; padding: 0; margin: 0; }
 .pub-list-item { padding: 15px 10px; cursor: pointer; border-bottom: 1px solid var(--border-color); transition: background-color 0.2s ease-in-out; display: flex; justify-content: space-between; align-items: center; font-size: 1.05rem; }
 .pub-list-item:hover { background-color: var(--background-light); }
-.status-indicator { width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0; margin-left: 10px; background-position: center; background-repeat: no-repeat; background-size: 12px; border: 2px solid; }
+.status-indicator { width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0; margin-left: 10px; background-position: center; background-repeat: no-repeat; background-size: 12px; border: 2px solid; transition: opacity 0.2s; }
+.status-indicator.disabled { cursor: not-allowed; opacity: 0.5; }
 .indicator-visited { background-color: var(--accent-green); border-color: var(--accent-green); background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='white'%3E%3Cpath d='M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z'/%3E%3C/svg%3E"); }
 .indicator-unvisited { background-color: transparent; border-color: var(--text-secondary); }
 
