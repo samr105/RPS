@@ -25,14 +25,11 @@ function App() {
   
   const [searchTerm, setSearchTerm] = useState('');
   const [filter, setFilter] = useState('all');
-  const [hoveredPubId, setHoveredPubId] = useState(null);
   const [crawlPubIds, setCrawlPubIds] = useState([]);
 
-  // GUARANTEED DATA SYNC: This is the single source of truth for updating the map's visual data.
-  // It runs whenever allPubs changes, ensuring the map always has fresh data for colors.
+  // This useEffect ensures the map's data is always in sync with the latest pub list
   useEffect(() => {
     if (!map.current || !map.current.isStyleLoaded() || !map.current.getSource('pubs-source')) return;
-
     const features = allPubs.map(p => {
       if (!p || typeof p.geom !== 'string' || p.id == null) return null;
       const match = p.geom.match(/POINT\s*\(([^)]+)\)/);
@@ -42,9 +39,7 @@ function App() {
       if (parts.length !== 2 || isNaN(lon) || isNaN(lat)) return null;
       return { type: 'Feature', id: p.id, geometry: { type: 'Point', coordinates: [lon, lat] }, properties: { name: p.name, is_visited: p.is_visited }};
     }).filter(Boolean);
-    
     map.current.getSource('pubs-source').setData({ type: 'FeatureCollection', features });
-
   }, [allPubs]);
 
   const handleDataUpdate = useCallback(async (currentSelectedId = null) => {
@@ -65,82 +60,68 @@ function App() {
     map.current = new maplibregl.Map({ container: mapContainer.current, style: `https://tiles.stadiamaps.com/styles/alidade_smooth_dark.json?api_key=${stadiaApiKey}`, center: [-3.53, 50.72], zoom: 12, antialias: true });
 
     map.current.on('load', async () => {
+      // Create a single popup instance to be reused.
+      const popup = new maplibregl.Popup({
+          closeButton: false,
+          closeOnClick: false,
+          offset: 15, // Offset the popup slightly from the circle's center
+      });
+      
       map.current.addSource('pubs-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] }, promoteId: 'id' });
 
-      // Base layer for all pubs
-      map.current.addLayer({ id: 'pubs-layer', type: 'circle', source: 'pubs-source', paint: { 'circle-color': ['case', ['get', 'is_visited'], '#198754', '#dc3545'], 'circle-radius': 7, 'circle-stroke-color': '#FFFFFF', 'circle-stroke-width': 2 } });
+      // Base layer for all pub circles. No hover logic here anymore.
+      map.current.addLayer({ id: 'pubs-layer', type: 'circle', source: 'pubs-source', paint: { 'circle-color': ['case', ['get', 'is_visited'], '#198754', '#dc3545'], 'circle-radius': ['case', ['boolean', ['feature-state', 'selected'], false], 10, 7], 'circle-stroke-color': ['case', ['boolean', ['feature-state', 'selected'], false], '#0d6efd', '#FFFFFF'], 'circle-stroke-width': 2 } });
       
-      // NEW HOVER APPROACH: A separate layer just for the enlarged hover effect
-      map.current.addLayer({ id: 'pubs-hover-circle', type: 'circle', source: 'pubs-source', paint: { 'circle-color': ['case', ['get', 'is_visited'], '#198754', '#dc3545'], 'circle-radius': 11, 'circle-stroke-color': '#FFFFFF', 'circle-stroke-width': 2.5, 'circle-opacity': 1 }, filter: ['==', ['id'], ''] });
+      // NEW: A separate layer for pub names that only appears at high zoom levels
+      map.current.addLayer({
+          id: 'pub-labels-zoomed', type: 'symbol', source: 'pubs-source',
+          minzoom: 14, // Labels will only show up when zoom is 14 or higher
+          layout: { 'text-field': ['get', 'name'], 'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'], 'text-size': 14, 'text-offset': [0, 1.25], 'text-anchor': 'top' },
+          paint: { 'text-color': '#ffffff', 'text-halo-color': 'rgba(0,0,0,0.85)', 'text-halo-width': 1.5, 'text-halo-blur': 1 }
+      });
       
-      // NEW HOVER APPROACH: A separate layer just for the hover label
-      map.current.addLayer({ id: 'pubs-hover-label', type: 'symbol', source: 'pubs-source', layout: { 'text-field': ['get', 'name'], 'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'], 'text-offset': [0, 1.8], 'text-anchor': 'top' }, paint: { 'text-color': '#ffffff', 'text-halo-color': 'rgba(0,0,0,0.85)', 'text-halo-width': 1.5, 'text-halo-blur': 1 }, filter: ['==', ['id'], ''] });
-      
-      map.current.on('mousemove', 'pubs-layer', (e) => {
-        if (e.features.length > 0 && e.features[0].id != null) {
-          map.current.getCanvas().style.cursor = 'pointer';
-          setHoveredPubId(e.features[0].id);
+      // NEW RELIABLE HOVER LOGIC using Popup
+      map.current.on('mouseenter', 'pubs-layer', (e) => {
+        map.current.getCanvas().style.cursor = 'pointer';
+        const feature = e.features[0];
+        if (feature) {
+            popup.setLngLat(feature.geometry.coordinates).setHTML(`<strong>${feature.properties.name}</strong>`).addTo(map.current);
         }
       });
-
       map.current.on('mouseleave', 'pubs-layer', () => {
         map.current.getCanvas().style.cursor = '';
-        setHoveredPubId(null);
+        popup.remove();
       });
 
       map.current.on('click', 'pubs-layer', (e) => { if (e.features.length > 0 && e.features[0].id != null) { const pub = allPubsRef.current.find(p => p.id === e.features[0].id); if (pub) { clearCrawlRoute(); setSelectedPub(pub); } } });
-      
       setIsLoading(true); await handleDataUpdate(); setIsLoading(false);
     });
     // eslint-disable-next-line
   }, []);
-
-  // Combined effect to manage hover and crawl states on map layers
-  useEffect(() => {
-    if (!map.current?.isStyleLoaded()) return;
-
-    // Hover filter logic
-    map.current.setFilter('pubs-hover-circle', ['==', ['id'], hoveredPubId || '']);
-    map.current.setFilter('pubs-hover-label', ['==', ['id'], hoveredPubId || '']);
-
-    // Dimming and hiding logic for base layer
-    let opacity = 1.0;
-    if (hoveredPubId != null) {
-        // Hide base circle under the hover circle and dim all others
-        opacity = ['case', ['==', ['id'], hoveredPubId], 0.0, 0.4];
-    } else if (crawlPubIds.length > 0) {
-        // Highlight crawl pubs and dim all others
-        opacity = ['case', ['in', ['id'], ['literal', crawlPubIds]], 1.0, 0.4];
-    }
-    map.current.setPaintProperty('pubs-layer', 'circle-opacity', opacity);
-
-  }, [hoveredPubId, crawlPubIds]);
   
-  // Effect to fly to a pub when it is selected
+  // This effect now only handles the crawl route dimming. Hover is handled by Popup.
   useEffect(() => {
-    if (selectedPub && map.current?.isStyleLoaded()) {
-      map.current.setFilter('pubs-hover-circle', ['==', ['id'], '']);
-      map.current.setFilter('pubs-hover-label', ['==', ['id'], '']);
-      const match = selectedPub.geom.match(/POINT\s*\(([^)]+)\)/);
-      if (match?.[1]) { const coords = match[1].trim().split(/\s+/).map(Number); if (coords.length === 2 && !isNaN(coords[0]) && !isNaN(coords[1])) map.current.flyTo({ center: [coords[0], coords[1]], zoom: 15 }); }
+    if (!map.current?.isStyleLoaded() || !map.current.getLayer('pubs-layer')) return;
+    map.current.setPaintProperty('pubs-layer', 'circle-opacity', crawlPubIds.length > 0 ? 0.3 : 1.0);
+  }, [crawlPubIds]);
+
+  // This effect handles the visual selection of a pub (blue circle outline)
+  useEffect(() => {
+    if (map.current?.isStyleLoaded()) {
+      allPubsRef.current.forEach(pub => map.current.setFeatureState({ source: 'pubs-source', id: pub.id }, { selected: false }));
+      if (selectedPub) {
+        map.current.setFeatureState({ source: 'pubs-source', id: selectedPub.id }, { selected: true });
+        const match = selectedPub.geom.match(/POINT\s*\(([^)]+)\)/);
+        if (match?.[1]) { const coords = match[1].trim().split(/\s+/).map(Number); if (coords.length === 2 && !isNaN(coords[0]) && !isNaN(coords[1])) map.current.flyTo({ center: [coords[0], coords[1]], zoom: 15 }); }
+      }
     }
   }, [selectedPub]);
 
   const handleLogVisit = async (pubId, options = {}) => {
-    const { navigateOnSuccess = true } = options;
-    setIsTogglingVisit(true);
-    const { error } = await supabase.from('visits').insert({ pub_id: pubId, visit_date: new Date().toISOString() });
-    if (error) { setNotification({ message: `Error logging visit: ${error.message}`, type: 'error' }); }
-    else { const pubName = allPubs.find(p => p.id === pubId)?.name || 'that pub'; await handleDataUpdate(navigateOnSuccess ? pubId : null); setNotification({ message: `Visit logged for ${pubName}!`, type: 'success' }); }
-    setIsTogglingVisit(false);
+    const { navigateOnSuccess = true } = options; setIsTogglingVisit(true); const { error } = await supabase.from('visits').insert({ pub_id: pubId, visit_date: new Date().toISOString() }); if (error) { setNotification({ message: `Error logging visit: ${error.message}`, type: 'error' }); } else { const pubName = allPubs.find(p => p.id === pubId)?.name || 'that pub'; await handleDataUpdate(navigateOnSuccess ? pubId : null); setNotification({ message: `Visit logged for ${pubName}!`, type: 'success' }); } setIsTogglingVisit(false);
   };
   const handleRemoveVisit = async (pubId, visitId, options = {}) => {
-    const { navigateOnSuccess = true } = options;
-    setIsTogglingVisit(true);
-    const { error } = await supabase.from('visits').delete().eq('id', visitId);
-    if (error) { setNotification({ message: `Error removing visit: ${error.message}`, type: 'error' }); }
-    else { const pubName = allPubs.find(p => p.id === pubId)?.name || 'that pub'; await handleDataUpdate(navigateOnSuccess ? pubId : null); setNotification({ message: `Last visit removed for ${pubName}.`, type: 'success' }); }
-    setIsTogglingVisit(false);
+    const { navigateOnSuccess = true } = options; setIsTogglingVisit(true); const { error } = await supabase.from('visits').delete().eq('id', visitId); if (error) { setNotification({ message: `Error removing visit: ${error.message}`, type: 'error' }); } else { const pubName = allPubs.find(p => p.id === pubId)?.name || 'that pub'; await handleDataUpdate(navigateOnSuccess ? pubId : null); setNotification({ message: `Last visit removed for ${pubName}.`, type: 'success' }); } setIsTogglingVisit(false);
   };
 
   const handleGenerateCrawl = async () => {
