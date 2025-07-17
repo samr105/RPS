@@ -40,43 +40,24 @@ function App() {
     const { data, error } = await supabase.rpc('get_all_pub_details'); if (error) { setNotification({ message: `Error loading pubs: ${error.message}`, type: 'error' }); return; } const pubData = data.map(pub => ({...pub, geom: pub.geom || ''})); allPubsRef.current = pubData; setAllPubs(pubData); if (selectAfter && currentSelectedId) { setSelectedPub(pubData.find(p => p.id === currentSelectedId) || null); }
   }, []);
   
-  const clearCrawlRoute = useCallback(() => { 
-    if (map.current?.getLayer('crawl-route')) { map.current.removeLayer('crawl-route'); map.current.removeSource('crawl-route'); } 
-    setCrawlPubIds([]); 
-    setCrawlSummary(null);
-    setNotification({message: 'Crawl cleared.', type: 'info'}) 
-  }, []);
+  const clearCrawlRoute = useCallback(() => { if (map.current?.getLayer('crawl-route')) { map.current.removeLayer('crawl-route'); map.current.removeSource('crawl-route'); } setCrawlPubIds([]); setCrawlSummary(null); setNotification({message: 'Crawl cleared.', type: 'info'}) }, []);
 
   const handleGenerateCrawl = async (pub) => {
-    const button = document.querySelector('.generate-crawl-btn');
-    if (button) { button.innerText = 'Calculating...'; button.disabled = true; } 
-    
-    const match = pub.geom.match(/POINT\s*\(([^)]+)\)/);
-    if (!match?.[1]) { setNotification({message: 'Pub location is invalid.', type: 'error'}); return; } 
-    
-    const coords = match[1].trim().split(/\s+/).map(Number);
+    const button = document.querySelector('.generate-crawl-btn'); if (button) { button.innerText = 'Calculating...'; button.disabled = true; } const match = pub.geom.match(/POINT\s*\(([^)]+)\)/); if (!match?.[1]) { setNotification({message: 'Pub location is invalid.', type: 'error'}); return; } const coords = match[1].trim().split(/\s+/).map(Number);
     try {
-        const response = await fetch(`/api/generate-crawl?lng=${coords[0]}&lat=${coords[1]}&start_pub_id=${pub.id}`);
-        const data = await response.json(); 
-        if (!response.ok) throw new Error(data.error || 'Failed to generate crawl.');
-        
-        clearCrawlRoute();
-        map.current.addSource('crawl-route', { type: 'geojson', data: data.route });
-        map.current.addLayer({ id: 'crawl-route', type: 'line', source: 'crawl-route', layout: {'line-join': 'round', 'line-cap': 'round'}, paint: { 'line-color': '#0d6efd', 'line-width': 5 } });
-        setCrawlPubIds(data.pubIds);
-        
-        const summaryPubs = data.pubIds.map(id => allPubsRef.current.find(p => p.id === id)).filter(Boolean);
-        setCrawlSummary({ pubs: summaryPubs, duration: data.totalDuration });
-
-        setNotification({ message: `Crawl found!`, type: 'success' });
-    } catch (err) {
-        setNotification({ message: `Error: ${err.message}`, type: 'error' });
-    } finally {
-        if (button) { button.innerText = 'Generate Mini-Crawl'; button.disabled = false; }
-    }
+      const response = await fetch(`/api/generate-crawl?lng=${coords[0]}&lat=${coords[1]}&start_pub_id=${pub.id}`); const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Failed to generate crawl.');
+      if(map.current?.getLayer('crawl-route')) { map.current.removeLayer('crawl-route'); map.current.removeSource('crawl-route');}
+      map.current.addSource('crawl-route', { type: 'geojson', data: data.route });
+      map.current.addLayer({ id: 'crawl-route', type: 'line', source: 'crawl-route', layout: {'line-join': 'round', 'line-cap': 'round'}, paint: { 'line-color': '#0d6efd', 'line-width': 5 } });
+      setCrawlPubIds(data.pubIds);
+      const summaryPubs = data.pubIds.map(id => allPubsRef.current.find(p => p.id === id)).filter(Boolean); setCrawlSummary({ pubs: summaryPubs, duration: data.totalDuration });
+      setNotification({ message: `Crawl found!`, type: 'success' });
+    } catch (err) { setNotification({ message: `Error: ${err.message}`, type: 'error' });
+    } finally { if (button) { button.innerText = 'Generate Mini-Crawl'; button.disabled = false; } }
   };
 
   const handlePubListItemClick = (pub) => {
+    if (!pub) return;
     if (pub.is_visited) { clearCrawlRoute(); setSelectedPub(pub); return; }
     if (crawlPubIds.length > 0 && crawlPubIds[0] === pub.id) { clearCrawlRoute(); setSelectedPub(null); }
     else { setSelectedPub(pub); handleGenerateCrawl(pub); }
@@ -106,11 +87,16 @@ function App() {
             if (feature?.id != null) { const pub = allPubsRef.current.find(p => p.id === feature.id); if (pub) handlePubMouseEnter(pub); }
         });
         map.current.on('mouseleave', 'pubs-layer', () => { map.current.getCanvas().style.cursor = ''; handlePubMouseLeave(); });
-        map.current.on('click', 'pubs-layer', (e) => { if (e.features.length > 0 && e.features[0].id != null) { const pub = allPubsRef.current.find(p => p.id === e.features[0].id); if (pub) handlePubListItemClick(pub); } });
         
-        setIsLoading(true);
-        await handleDataUpdate(null, false);
-        setIsLoading(false);
+        // FIX: The click handler now correctly finds the full pub object and uses the unified click handler
+        map.current.on('click', 'pubs-layer', (e) => {
+            if (e.features.length > 0 && e.features[0].id != null) {
+                const pub = allPubsRef.current.find(p => p.id === e.features[0].id);
+                if (pub) handlePubListItemClick(pub);
+            }
+        });
+        
+        setIsLoading(true); await handleDataUpdate(null, false); setIsLoading(false);
     });
   }, [handleDataUpdate, handlePubMouseEnter, handlePubMouseLeave]);
   
@@ -142,16 +128,7 @@ function App() {
               ) : (
                 <motion.div key="list">
                   <h2 className="sidebar-header">Exeter Pubs ({filteredPubs.length})</h2>
-                  <PubList
-                    pubs={filteredPubs}
-                    onSelectPub={handlePubListItemClick}
-                    onLogVisit={handleLogVisit}
-                    onRemoveVisit={handleRemoveVisit}
-                    isTogglingVisit={isTogglingVisit}
-                    onMouseEnter={handlePubMouseEnter}
-                    onMouseLeave={handlePubMouseLeave}
-                    hoveredPubId={hoveredPubId}
-                  />
+                  <PubList pubs={filteredPubs} onSelectPub={handlePubListItemClick} onLogVisit={handleLogVisit} onRemoveVisit={handleRemoveVisit} isTogglingVisit={isTogglingVisit} onMouseEnter={handlePubMouseEnter} onMouseLeave={handlePubMouseLeave} hoveredPubId={hoveredPubId} />
                 </motion.div>
               )}
             </AnimatePresence>
