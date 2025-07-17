@@ -2,8 +2,11 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 
-const PubDetailView = ({ pub, onBack, onToggleVisit, onGenerateCrawl, onRemoveVisit, isToggling }) => {
-    // Note: The original geom parsing was here, but it's better handled in the main component.
+const PubDetailView = ({ pub, onBack, onToggleVisit, onGenerateCrawl, onRemoveVisit, isToggling, isCrawlOrigin, onClearCrawl }) => {
+    
+    // Determine if the "Generate Crawl" button should be shown.
+    // Show if pub is unvisited and NOT already the start of an active crawl.
+    const showGenerateButton = !pub.is_visited && !isCrawlOrigin;
     
     return (
         <motion.div initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 50 }}>
@@ -15,29 +18,22 @@ const PubDetailView = ({ pub, onBack, onToggleVisit, onGenerateCrawl, onRemoveVi
             </div>
             
             <div className="action-buttons">
-                <button
-                    className="action-button visited-btn"
-                    onClick={() => onToggleVisit(pub.id)}
-                    disabled={isToggling}
-                >
+                <button className="action-button visited-btn" onClick={() => onToggleVisit(pub.id)} disabled={isToggling}>
                     {isToggling ? 'Logging Visit...' : 'Log a New Visit'}
                 </button>
-                {pub.is_visited && pub.visit_history && pub.visit_history[0] && (
-                    <button
-                        className="action-button remove-visit-btn"
-                        onClick={() => onRemoveVisit(pub.id, pub.visit_history[0].id)}
-                        disabled={isToggling}
-                    >
+                {pub.is_visited && pub.visit_history?.[0] && (
+                    <button className="action-button remove-visit-btn" onClick={() => onRemoveVisit(pub.id, pub.visit_history[0].id)} disabled={isToggling}>
                          {isToggling ? 'Removing...' : 'Remove Last Visit'}
                     </button>
                 )}
-                {!pub.is_visited && (
-                    <button
-                        className="action-button generate-crawl-btn"
-                        // Pass the entire event to the handler
-                        onClick={onGenerateCrawl}
-                    >
+                {showGenerateButton && (
+                    <button className="action-button generate-crawl-btn" onClick={() => onGenerateCrawl(pub)}>
                         Generate Mini-Crawl
+                    </button>
+                )}
+                {isCrawlOrigin && (
+                    <button className="action-button clear-crawl-btn" onClick={onClearCrawl}>
+                        Clear This Crawl
                     </button>
                 )}
             </div>
@@ -46,11 +42,7 @@ const PubDetailView = ({ pub, onBack, onToggleVisit, onGenerateCrawl, onRemoveVi
                 <h4>Visit History</h4>
                 {pub.visit_history && pub.visit_history.length > 0 ? (
                     <ul className="visit-list">
-                        {pub.visit_history.map(visit => (
-                            <li key={visit.id} className="visit-item">
-                                Visited on: <span>{new Date(visit.visit_date).toLocaleDateString()}</span>
-                            </li>
-                        ))}
+                        {pub.visit_history.map(visit => (<li key={visit.id} className="visit-item">Visited on: <span>{new Date(visit.visit_date).toLocaleDateDateString()}</span></li>))}
                     </ul>
                 ) : <p>No visits logged yet.</p>}
             </div>
