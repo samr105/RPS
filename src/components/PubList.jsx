@@ -1,25 +1,35 @@
 // src/components/PubList.jsx
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 
-const PubList = ({ pubs, onSelectPub, onLogVisit, onRemoveVisit, isTogglingVisit }) => {
+const PubList = ({ pubs, onSelectPub, onLogVisit, onRemoveVisit, isTogglingVisit, onMouseEnter, onMouseLeave, hoveredPubId }) => {
+  
+  // Create a ref to hold the DOM nodes of the list items
+  const listItemsRef = useRef({});
 
+  // This effect watches for changes to the hoveredPubId (from the map)
+  // and smoothly scrolls the corresponding list item into view.
+  useEffect(() => {
+    if (hoveredPubId !== null) {
+      const element = listItemsRef.current[hoveredPubId];
+      if (element) {
+        element.scrollIntoView({
+          behavior: 'smooth',
+          block: 'nearest',
+        });
+      }
+    }
+  }, [hoveredPubId]);
+  
   const handleQuickToggle = (event, pub) => {
-    // Stop the click from "bubbling up" to the parent <li>, which would trigger onSelectPub.
     event.stopPropagation();
-    
-    // Prevent multiple rapid clicks while a request is in flight.
     if (isTogglingVisit) return;
-
     if (pub.is_visited) {
-      // Find the most recent visit ID to remove.
       const lastVisitId = pub.visit_history?.[0]?.id;
       if (lastVisitId) {
-        // Pass the new options object to prevent navigation
         onRemoveVisit(pub.id, lastVisitId, { navigateOnSuccess: false });
       }
     } else {
-      // Pass the new options object to prevent navigation
       onLogVisit(pub.id, { navigateOnSuccess: false });
     }
   };
@@ -36,9 +46,15 @@ const PubList = ({ pubs, onSelectPub, onLogVisit, onRemoveVisit, isTogglingVisit
     >
       {pubs.map(pub => (
         <motion.li
+          // Assign the DOM element to our ref map when it renders
+          ref={el => listItemsRef.current[pub.id] = el}
           key={pub.id}
-          className="pub-list-item"
+          // Add a 'highlighted' class if this item is being hovered on the map
+          className={`pub-list-item ${hoveredPubId === pub.id ? 'highlighted' : ''}`}
           onClick={() => onSelectPub(pub)}
+          // Add mouse enter/leave handlers for sidebar-to-map communication
+          onMouseEnter={() => onMouseEnter(pub)}
+          onMouseLeave={onMouseLeave}
           variants={{ visible: { opacity: 1, y: 0 }, hidden: { opacity: 0, y: 20 } }}
           layout
         >
