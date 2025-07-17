@@ -483,3 +483,8 @@
   font-weight: bold;
   margin-right: 10px;
 }
+.mark-all-btn {
+    margin-top: 20px;
+    background-color: var(--accent-green);
+    color: white;
+}

@@ -2,7 +2,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 
-const CrawlSummary = ({ crawlData, onClose }) => {
+const CrawlSummary = ({ crawlData, onClose, onMarkAllVisited, isProcessing }) => {
   if (!crawlData) return null;
 
   const { pubs, duration } = crawlData;
@@ -30,6 +30,13 @@ const CrawlSummary = ({ crawlData, onClose }) => {
           </li>
         ))}
       </ol>
+      <button 
+        className="action-button mark-all-btn" 
+        onClick={onMarkAllVisited}
+        disabled={isProcessing}
+      >
+        {isProcessing ? 'Saving...' : 'Mark All as Visited'}
+      </button>
     </motion.div>
   );
 };

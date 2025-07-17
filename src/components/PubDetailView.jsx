@@ -40,8 +40,11 @@ const PubDetailView = ({ pub, onBack, onToggleVisit, onGenerateCrawl, onRemoveVi
                 <h4>Visit History</h4>
                 {pub.visit_history && pub.visit_history.length > 0 ? (
                     <ul className="visit-list">
-                        {/* FIX: Corrected typo from toLocaleDateDateString to toLocaleDateString */}
-                        {pub.visit_history.map(visit => (<li key={visit.id} className="visit-item">Visited on: <span>{new Date(visit.visit_date).toLocaleDateString()}</span></li>))}
+                        {pub.visit_history.map(visit => (
+                            <li key={visit.id} className="visit-item">
+                                Visited on: <span>{new Date(visit.visit_date).toLocaleDateString()}</span>
+                            </li>
+                        ))}
                     </ul>
                 ) : <p>No visits logged yet.</p>}
             </div>

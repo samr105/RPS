@@ -45,13 +45,14 @@ function App() {
   const handleGenerateCrawl = async (pub) => {
     const button = document.querySelector('.generate-crawl-btn'); if (button) { button.innerText = 'Calculating...'; button.disabled = true; } const match = pub.geom.match(/POINT\s*\(([^)]+)\)/); if (!match?.[1]) { setNotification({message: 'Pub location is invalid.', type: 'error'}); return; } const coords = match[1].trim().split(/\s+/).map(Number);
     try {
-      const response = await fetch(`/api/generate-crawl?lng=${coords[0]}&lat=${coords[1]}&start_pub_id=${pub.id}`); const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Failed to generate crawl.');
-      if(map.current?.getLayer('crawl-route')) { map.current.removeLayer('crawl-route'); map.current.removeSource('crawl-route');}
-      map.current.addSource('crawl-route', { type: 'geojson', data: data.route });
-      map.current.addLayer({ id: 'crawl-route', type: 'line', source: 'crawl-route', layout: {'line-join': 'round', 'line-cap': 'round'}, paint: { 'line-color': '#0d6efd', 'line-width': 5 } });
-      setCrawlPubIds(data.pubIds);
-      const summaryPubs = data.pubIds.map(id => allPubsRef.current.find(p => p.id === id)).filter(Boolean); setCrawlSummary({ pubs: summaryPubs, duration: data.totalDuration });
-      setNotification({ message: `Crawl found!`, type: 'success' });
+        const response = await fetch(`/api/generate-crawl?lng=${coords[0]}&lat=${coords[1]}&start_pub_id=${pub.id}`);
+        const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Failed to generate crawl.');
+        if(map.current?.getLayer('crawl-route')) { map.current.removeLayer('crawl-route'); map.current.removeSource('crawl-route');}
+        map.current.addSource('crawl-route', { type: 'geojson', data: data.route });
+        map.current.addLayer({ id: 'crawl-route', type: 'line', source: 'crawl-route', layout: {'line-join': 'round', 'line-cap': 'round'}, paint: { 'line-color': '#0d6efd', 'line-width': 5 } });
+        setCrawlPubIds(data.pubIds);
+        const summaryPubs = data.pubIds.map(id => allPubsRef.current.find(p => p.id === id)).filter(Boolean); setCrawlSummary({ pubs: summaryPubs, duration: data.totalDuration });
+        setNotification({ message: `Crawl found!`, type: 'success' });
     } catch (err) { setNotification({ message: `Error: ${err.message}`, type: 'error' });
     } finally { if (button) { button.innerText = 'Generate Mini-Crawl'; button.disabled = false; } }
   };
@@ -62,13 +63,14 @@ function App() {
     if (crawlPubIds.length > 0 && crawlPubIds[0] === pub.id) { clearCrawlRoute(); setSelectedPub(null); }
     else { setSelectedPub(pub); handleGenerateCrawl(pub); }
   };
-  
+
   const handlePubMouseEnter = useCallback((pub) => {
     setHoveredPubId(pub.id); const match = pub.geom.match(/POINT\s*\(([^)]+)\)/); if (!match?.[1]) return; const coords = match[1].trim().split(/\s+/).map(Number); if (coords.length === 2 && !isNaN(coords[0]) && !isNaN(coords[1])) { popupRef.current.setLngLat(coords).setHTML(`<strong>${pub.name}</strong>`).addClassName(pub.is_visited ? 'visited-popup' : 'unvisited-popup').removeClassName(pub.is_visited ? 'unvisited-popup' : 'visited-popup').addTo(map.current); }
   }, []);
   
   const handlePubMouseLeave = useCallback(() => { setHoveredPubId(null); popupRef.current?.remove(); }, []);
 
+  // Correct, single map initialization hook
   useEffect(() => {
     if (map.current || !mapContainer.current) return;
     
@@ -88,7 +90,6 @@ function App() {
         });
         map.current.on('mouseleave', 'pubs-layer', () => { map.current.getCanvas().style.cursor = ''; handlePubMouseLeave(); });
         
-        // FIX: The click handler now correctly finds the full pub object and uses the unified click handler
         map.current.on('click', 'pubs-layer', (e) => {
             if (e.features.length > 0 && e.features[0].id != null) {
                 const pub = allPubsRef.current.find(p => p.id === e.features[0].id);
@@ -96,15 +97,40 @@ function App() {
             }
         });
         
-        setIsLoading(true); await handleDataUpdate(null, false); setIsLoading(false);
+        setIsLoading(true);
+        await handleDataUpdate(null, false);
+        setIsLoading(false);
     });
-  }, [handleDataUpdate, handlePubMouseEnter, handlePubMouseLeave]);
-  
+  // The empty dependency array is crucial. We only want this to run ONCE.
+  }, []);
+
   useEffect(() => { if (!map.current?.isStyleLoaded() || !map.current.getLayer('pubs-layer')) return; map.current.setPaintProperty('pubs-layer', 'circle-opacity', crawlPubIds.length > 0 ? 0.3 : 1.0); }, [crawlPubIds]);
   useEffect(() => { if (map.current?.isStyleLoaded()) { allPubsRef.current.forEach(pub => map.current.setFeatureState({ source: 'pubs-source', id: pub.id }, { selected: false })); if (selectedPub) { map.current.setFeatureState({ source: 'pubs-source', id: selectedPub.id }, { selected: true }); const match = selectedPub.geom.match(/POINT\s*\(([^)]+)\)/); if (match?.[1]) { const coords = match[1].trim().split(/\s+/).map(Number); if (coords.length === 2 && !isNaN(coords[0]) && !isNaN(coords[1])) map.current.flyTo({ center: [coords[0], coords[1]], zoom: 15 }); } } } }, [selectedPub]);
 
   const handleLogVisit = async (pubId, options = {}) => { const { navigateOnSuccess = true } = options; setIsTogglingVisit(true); const { error } = await supabase.from('visits').insert({ pub_id: pubId, visit_date: new Date().toISOString() }); const pubName = allPubs.find(p => p.id === pubId)?.name || 'that pub'; if (error) { setNotification({ message: `Error logging visit: ${error.message}`, type: 'error' }); } else { await handleDataUpdate(pubId, navigateOnSuccess); setNotification({ message: `Visit logged for ${pubName}!`, type: 'success' }); } setIsTogglingVisit(false); };
   const handleRemoveVisit = async (pubId, visitId, options = {}) => { const { navigateOnSuccess = true } = options; setIsTogglingVisit(true); const { error } = await supabase.from('visits').delete().eq('id', visitId); const pubName = allPubs.find(p => p.id === pubId)?.name || 'that pub'; if (error) { setNotification({ message: `Error removing visit: ${error.message}`, type: 'error' }); } else { await handleDataUpdate(pubId, navigateOnSuccess); setNotification({ message: `Last visit removed for ${pubName}.`, type: 'success' }); } setIsTogglingVisit(false); };
+  
+  // New handler for batch-visiting crawl pubs
+  const handleMarkCrawlVisited = async () => {
+    if (!crawlPubIds || crawlPubIds.length === 0) return;
+    setIsTogglingVisit(true);
+
+    const visitsToInsert = crawlPubIds.map(id => ({
+      pub_id: id,
+      visit_date: new Date().toISOString(),
+    }));
+
+    const { error } = await supabase.from('visits').insert(visitsToInsert);
+
+    if (error) {
+      setNotification({ message: `Error saving crawl visits: ${error.message}`, type: 'error' });
+    } else {
+      setNotification({ message: 'Crawl completed and saved!', type: 'success' });
+      await handleDataUpdate();
+      clearCrawlRoute();
+    }
+    setIsTogglingVisit(false);
+  };
 
   const visitedCount = useMemo(() => allPubs.filter(p => p.is_visited).length, [allPubs]);
   const filteredPubs = useMemo(() => { return allPubs.filter(pub => { const matchesSearch = pub.name.toLowerCase().includes(searchTerm.toLowerCase()); if (filter === 'visited') return matchesSearch && pub.is_visited; if (filter === 'unvisited') return matchesSearch && !pub.is_visited; return matchesSearch; }).sort((a, b) => a.name.localeCompare(b.name)); }, [allPubs, searchTerm, filter]);
@@ -136,7 +162,7 @@ function App() {
         </aside>
         <div ref={mapContainer} className="map-container" />
         <AnimatePresence>
-          {crawlSummary && (<CrawlSummary crawlData={crawlSummary} onClose={clearCrawlRoute} />)}
+          {crawlSummary && (<CrawlSummary crawlData={crawlSummary} onClose={clearCrawlRoute} onMarkAllVisited={handleMarkCrawlVisited} isProcessing={isTogglingVisit} />)}
         </AnimatePresence>
         <ProgressBar visitedCount={visitedCount} totalCount={allPubs.length} />
       </div>
