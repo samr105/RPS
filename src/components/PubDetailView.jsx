@@ -42,6 +42,7 @@ const PubDetailView = ({ pub, onBack, onToggleVisit, onGenerateCrawl, onRemoveVi
                     <ul className="visit-list">
                         {pub.visit_history.map(visit => (
                             <li key={visit.id} className="visit-item">
+                                {/* FIX: Corrected typo from toLocaleDateDateString to toLocaleDateString */}
                                 Visited on: <span>{new Date(visit.visit_date).toLocaleDateString()}</span>
                             </li>
                         ))}
