@@ -61,13 +61,15 @@ export default function MapController() {
         });
     }, [setSelectedPubId, setHoveredPubId]);
     
+
     // Effect 2: THE SINGLE REACTOR - Syncs all visual state with the map
     useEffect(() => {
         if (!mapIsLoaded || !map.current) return;
 
+        // Sync pub data - ONLY runs if the pub data has actually changed
         const pubSource = map.current.getSource('pubs');
         if (pubSource) {
-            // FIX: Be explicit with properties, excluding complex objects like visit_history array.
+            // THE FIX: Be explicit with properties passed to the map. This prevents the "object" error.
             const features = pubs.map(p => {
                 const match = p.geom.match(/POINT\s*\(([^)]+)\)/);
                 if (!match?.[1]) return null;
@@ -76,21 +78,24 @@ export default function MapController() {
                     type: 'Feature', 
                     id: p.id, 
                     geometry: { type: 'Point', coordinates: [lon, lat] }, 
-                    properties: { is_visited: p.is_visited, name: p.name }
+                    properties: { 
+                        is_visited: p.is_visited, // Primitive boolean
+                        name: p.name              // Primitive string
+                    }
                 };
             }).filter(Boolean);
             pubSource.setData({ type: 'FeatureCollection', features });
         }
-
+        
         const routeSource = map.current.getSource('route');
-        if (routeSource) {
+        if(routeSource) {
             routeSource.setData(crawl?.route || EMPTY_GEOJSON);
         }
 
         let opacityExpression;
         if (crawl) {
             opacityExpression = ['case', ['in', ['id'], ['literal', crawl.pubIds]], 1.0, 0.3];
-        } else if (hoveredPubId) {
+        } else if (hoveredPubId !== null) {
             const visibleIds = [hoveredPubId];
             if(selectedPubId) visibleIds.push(selectedPubId);
             opacityExpression = ['case', ['in', ['id'], ['literal', visibleIds]], 1.0, 0.3];
@@ -107,7 +112,7 @@ export default function MapController() {
         });
 
         popup.current.remove();
-        if(hoveredPubId){
+        if(hoveredPubId !== null){
             const pub = pubs.find(p => p.id === hoveredPubId);
             if (pub) {
                 const match = pub.geom.match(/POINT\s*\(([^)]+)\)/);
