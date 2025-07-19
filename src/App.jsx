@@ -14,46 +14,68 @@ import ProgressBar from './components/ProgressBar';
 import CrawlSummary from './components/CrawlSummary';
 
 function App() {
-  // Refs for the map instance and DOM container
   const mapContainer = useRef(null);
   const map = useRef(null);
   
-  // Refs to store the latest IDs to prevent race conditions
+  // Use refs to store the latest ID, preventing stale state in map event listeners
   const hoveredPubIdRef = useRef(null);
   const selectedPubIdRef = useRef(null);
 
-  // Component state
   const [allPubs, setAllPubs] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isMapReady, setIsMapReady] = useState(false);
   const [selectedPub, setSelectedPub] = useState(null);
   const [hoveredPubId, setHoveredPubId] = useState(null);
-
-  // States for other UI elements that are not yet fully implemented
+  
+  // State for secondary UI features
   const [isTogglingVisit, setIsTogglingVisit] = useState(false);
   const [notification, setNotification] = useState({ message: '', type: 'info' });
   const [searchTerm, setSearchTerm] = useState('');
   const [filter, setFilter] = useState('all');
   const [crawlSummary, setCrawlSummary] = useState(null);
 
-  // Effect to initialize the map object. Runs only ONCE.
+  // Memoized handlers to prevent unnecessary re-renders of children
+  const onPubClick = useCallback((pub) => setSelectedPub(current => (current?.id === pub.id ? null : pub)), []);
+  const onPubEnter = useCallback((pub) => setHoveredPubId(pub?.id), []);
+  const onPubLeave = useCallback(() => setHoveredPubId(null), []);
+  
+  // Effect for map initialization. Runs only once on mount.
   useEffect(() => {
     if (map.current) return;
     const stadiaApiKey = import.meta.env.VITE_STADIA_API_KEY;
     map.current = new maplibregl.Map({
       container: mapContainer.current,
       style: `https://tiles.stadiamaps.com/styles/alidade_smooth_dark.json?api_key=${stadiaApiKey}`,
-      center: [-3.53, 50.72], zoom: 12, antialias: true
+      center: [-3.53, 50.72],
+      zoom: 12,
+      antialias: true
     });
     map.current.on('load', () => setIsMapReady(true));
     return () => { map.current?.remove(); map.current = null; };
   }, []);
 
-  // Effect to setup layers and listeners. Runs only ONCE when the map is ready.
+  // Effect to set up map sources, layers, and listeners. Runs only once when map is ready.
   useEffect(() => {
     if (!isMapReady) return;
 
-    // Add source and layer. This block will only ever run once.
+    // Define handlers inside the effect to capture the correct scope
+    const handleMouseMove = (e) => {
+      if (e.features?.length) {
+        map.current.getCanvas().style.cursor = 'pointer';
+        setHoveredPubId(e.features[0].id);
+      }
+    };
+    const handleMouseLeave = () => {
+      map.current.getCanvas().style.cursor = '';
+      setHoveredPubId(null);
+    };
+    const handleClick = (e) => {
+      if (e.features?.length) {
+        const clickedId = e.features[0].id;
+        setSelectedPub(prev => prev?.id === clickedId ? null : allPubs.find(p => p.id === clickedId));
+      }
+    };
+    
     map.current.addSource('pubs-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] }, promoteId: 'id' });
     map.current.addLayer({
         id: 'pubs-layer',
@@ -62,18 +84,13 @@ function App() {
         paint: {
             'circle-color': ['case', ['get', 'is_visited'], '#f39c12', '#FFFFFF'],
             'circle-radius': ['case', ['boolean', ['feature-state', 'selected'], false], 10, ['boolean', ['feature-state', 'hover'], false], 8, 5],
-            'circle-stroke-width': ['case', ['boolean', ['feature-state', 'selected'], false], 2.5, ['boolean', ['feature-state', 'hover'], false], 2.5, 0],
+            'circle-stroke-width': ['case', ['any', ['boolean', ['feature-state', 'hover'], false], ['boolean', ['feature-state', 'selected'], false]], 2.5, 0],
             'circle-stroke-color': '#0d6efd',
             'circle-opacity': 0.9,
             'circle-radius-transition': { duration: 150 },
-            'circle-stroke-width-transition': { duration: 150 },
+            'circle-stroke-opacity-transition': { duration: 150 }
         }
     });
-
-    // Event listeners
-    const handleMouseMove = (e) => { if (e.features?.length) setHoveredPubId(e.features[0].id); };
-    const handleMouseLeave = () => setHoveredPubId(null);
-    const handleClick = (e) => { if (e.features?.length) setSelectedPub(prev => prev?.id === e.features[0].id ? null : allPubs.find(p => p.id === e.features[0].id)); };
 
     map.current.on('mousemove', 'pubs-layer', handleMouseMove);
     map.current.on('mouseleave', 'pubs-layer', handleMouseLeave);
@@ -81,6 +98,7 @@ function App() {
     
     // Initial data fetch
     const fetchData = async () => {
+        setIsLoading(true);
         const { data, error } = await supabase.rpc('get_all_pub_details');
         if (error) { setNotification({ message: `Error loading pubs: ${error.message}`, type: 'error' }); } 
         else { setAllPubs(data.map(p => ({ ...p, geom: p.geom || '' }))); }
@@ -88,9 +106,9 @@ function App() {
     };
     fetchData();
 
-    // Cleanup listeners
+    // Cleanup listeners on unmount
     return () => {
-        if (map.current?.isStyleLoaded()) {
+        if (map.current) {
             map.current.off('mousemove', 'pubs-layer', handleMouseMove);
             map.current.off('mouseleave', 'pubs-layer', handleMouseLeave);
             map.current.off('click', 'pubs-layer', handleClick);
@@ -98,19 +116,19 @@ function App() {
     };
   }, [isMapReady, allPubs]);
 
-  // Effect to update the map's data source when pub data changes.
+  // Effect to sync GeoJSON data source with allPubs state
   useEffect(() => {
     if (!isMapReady || !map.current.getSource('pubs-source')) return;
-    const geojsonData = { type: 'FeatureCollection', features: allPubs.map(pub => {
+    const features = allPubs.map(pub => {
         const match = pub.geom.match(/POINT\s*\(([^)]+)\)/);
         if (!match?.[1]) return null;
         const coords = match[1].trim().split(/\s+/).map(Number);
-        return { type: 'Feature', id: pub.id, geometry: { type: 'Point', coordinates: coords }, properties: { name: pub.name, is_visited: pub.is_visited } };
-    }).filter(Boolean)};
-    map.current.getSource('pubs-source').setData(geojsonData);
+        return { type: 'Feature', id: pub.id, geometry: { type: 'Point', coordinates: coords }, properties: { is_visited: pub.is_visited, name: pub.name } };
+    }).filter(Boolean);
+    map.current.getSource('pubs-source').setData({ type: 'FeatureCollection', features });
   }, [allPubs, isMapReady]);
   
-  // Effect to sync map's hover state with React state.
+  // Effect to sync map's visual state with React's hover state
   useEffect(() => {
     if (!isMapReady) return;
     if (hoveredPubIdRef.current) map.current.setFeatureState({ source: 'pubs-source', id: hoveredPubIdRef.current }, { hover: false });
@@ -118,28 +136,21 @@ function App() {
     hoveredPubIdRef.current = hoveredPubId;
   }, [hoveredPubId, isMapReady]);
 
-  // Effect to sync map's selected state with React state.
+  // Effect to sync map's visual state with React's selected state
   useEffect(() => {
     if (!isMapReady) return;
     if (selectedPubIdRef.current) map.current.setFeatureState({ source: 'pubs-source', id: selectedPubIdRef.current }, { selected: false });
     if (selectedPub) {
-        map.current.setFeatureState({ source: 'pubs-source', id: selectedPub.id }, { selected: true });
-        const match = selectedPub.geom.match(/POINT\s*\(([^)]+)\)/);
-        if (match?.[1]) {
-            const coords = match[1].trim().split(/\s+/).map(Number);
-            map.current.flyTo({ center: coords, zoom: Math.max(map.current.getZoom(), 15), pitch: 30, essential: true });
-        }
+      map.current.setFeatureState({ source: 'pubs-source', id: selectedPub.id }, { selected: true });
+      const match = selectedPub.geom.match(/POINT\s*\(([^)]+)\)/);
+      if (match?.[1]) {
+        const coords = match[1].trim().split(/\s+/).map(Number);
+        if (coords.length === 2) map.current.flyTo({ center: coords, zoom: Math.max(map.current.getZoom(), 15), pitch: 30, essential: true });
+      }
     }
-    selectedPubIdRef.current = selectedPub ? selectedPub.id : null;
+    selectedPubIdRef.current = selectedPub?.id;
   }, [selectedPub, isMapReady]);
-  
-  // Handlers for child components
-  const onPubClick = useCallback((pub) => setSelectedPub(p => p?.id === pub.id ? null : pub), []);
-  const onPubEnter = useCallback((pub) => setHoveredPubId(pub.id), []);
-  const onPubLeave = useCallback(() => setHoveredPubId(null), []);
 
-  const handleLogVisit = async () => {}; const handleRemoveVisit = async () => {}; // Placeholders
-  
   const visitedCount = useMemo(() => allPubs.filter(p => p.is_visited).length, [allPubs]);
   const filteredPubs = useMemo(() => allPubs
       .filter(pub => pub.name.toLowerCase().includes(searchTerm.toLowerCase()))
@@ -147,9 +158,11 @@ function App() {
       .sort((a, b) => a.name.localeCompare(b.name)),
     [allPubs, searchTerm, filter]);
 
+  const handleLogVisit = async () => {}; const handleRemoveVisit = async () => {};
+
   return (
     <>
-      <div className="loading-overlay" style={{ display: isLoading ? 'flex' : 'none' }}>Loading Map...</div>
+      <div className="loading-overlay" style={{ display: isLoading ? 'flex' : 'none' }}>Loading...</div>
       <div className="app-container">
         <Notification message={notification.message} type={notification.type} onClose={() => setNotification({ message: '', type: 'info' })} />
         <aside className="sidebar">
@@ -164,7 +177,7 @@ function App() {
                   <PubList pubs={filteredPubs} onSelectPub={onPubClick} onLogVisit={handleLogVisit} onRemoveVisit={handleRemoveVisit} isTogglingVisit={isTogglingVisit} onMouseEnter={onPubEnter} onMouseLeave={onPubLeave} hoveredPubId={hoveredPubId}/>
                 </motion.div>
               )}
-            </AnimatePresence>
+            </AnatePresence>
           </div>
         </aside>
         <div ref={mapContainer} className="map-container" />
