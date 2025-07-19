@@ -4,7 +4,8 @@ import maplibregl from 'maplibre-gl';
 import { useMapContext } from '../context/MapContext';
 
 export default function MapController() {
-    const { mapRef, popupRef, selectPub, hoverPub } = useMapContext();
+    // FIX: Get setMapIsReady from the context
+    const { mapRef, popupRef, selectPub, hoverPub, setMapIsReady } = useMapContext();
 
     useEffect(() => {
         if (mapRef.current) return;
@@ -43,10 +44,16 @@ export default function MapController() {
             mapRef.current.on('click', 'pubs-layer', e => e.features.length > 0 && selectPub(e.features[0].id));
             mapRef.current.on('mouseenter', 'pubs-layer', e => e.features.length > 0 && hoverPub(e.features[0].id));
             mapRef.current.on('mouseleave', 'pubs-layer', () => hoverPub(null));
+
+            // FIX: This is the handshake. The map tells the context it's ready for commands.
+            setMapIsReady(true);
         });
         
-        return () => mapRef.current?.remove();
-    }, [mapRef, popupRef, selectPub, hoverPub]);
+        return () => {
+            mapRef.current?.remove();
+            setMapIsReady(false);
+        }
+    }, [mapRef, popupRef, selectPub, hoverPub, setMapIsReady]);
 
     return <div id="map" className="map-container" />;
 }
