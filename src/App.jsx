@@ -59,9 +59,14 @@ function App() {
 
   const handlePubListItemClick = (pub) => {
     if (!pub) return;
-    if (pub.is_visited) { clearCrawlRoute(); setSelectedPub(pub); return; }
-    if (crawlPubIds.length > 0 && crawlPubIds[0] === pub.id) { clearCrawlRoute(); setSelectedPub(null); }
-    else { setSelectedPub(pub); handleGenerateCrawl(pub); }
+
+    // Clear any crawl route that does not originate from the newly selected pub.
+    if (crawlPubIds.length > 0 && crawlPubIds[0] !== pub.id) {
+        clearCrawlRoute();
+    }
+    
+    // Set the selected pub to display its detail view.
+    setSelectedPub(pub);
   };
   
   const handlePubMouseEnter = useCallback((pub) => {
@@ -72,30 +77,20 @@ function App() {
 
   useEffect(() => {
     if (map.current || !mapContainer.current) return;
-    
     const stadiaApiKey = import.meta.env.VITE_STADIA_API_KEY;
     map.current = new maplibregl.Map({ container: mapContainer.current, style: `https://tiles.stadiamaps.com/styles/alidade_smooth_dark.json?api_key=${stadiaApiKey}`, center: [-3.53, 50.72], zoom: 12, antialias: true });
-
     map.current.on('load', async () => {
         popupRef.current = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 15 });
         map.current.addSource('pubs-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] }, promoteId: 'id' });
         map.current.addLayer({ id: 'pubs-layer', type: 'circle', source: 'pubs-source', paint: { 'circle-color': ['case', ['get', 'is_visited'], '#198754', '#dc3545'], 'circle-radius': ['case', ['boolean', ['feature-state', 'selected'], false], 10, 7], 'circle-stroke-color': ['case', ['boolean', ['feature-state', 'selected'], false], '#0d6efd', '#FFFFFF'], 'circle-stroke-width': 2 } });
         map.current.addLayer({ id: 'pub-labels-zoomed', type: 'symbol', source: 'pubs-source', minzoom: 14, layout: { 'text-field': ['get', 'name'], 'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'], 'text-size': 14, 'text-offset': [0, 1.25], 'text-anchor': 'top' }, paint: { 'text-color': '#ffffff', 'text-halo-color': 'rgba(0,0,0,0.85)', 'text-halo-width': 1.5, 'text-halo-blur': 1 } });
-        
         map.current.on('mouseenter', 'pubs-layer', (e) => {
             map.current.getCanvas().style.cursor = 'pointer';
             const feature = e.features[0];
             if (feature?.id != null) { const pub = allPubsRef.current.find(p => p.id === feature.id); if (pub) handlePubMouseEnter(pub); }
         });
         map.current.on('mouseleave', 'pubs-layer', () => { map.current.getCanvas().style.cursor = ''; handlePubMouseLeave(); });
-        
-        map.current.on('click', 'pubs-layer', (e) => {
-            if (e.features.length > 0 && e.features[0].id != null) {
-                const pub = allPubsRef.current.find(p => p.id === e.features[0].id);
-                if (pub) handlePubListItemClick(pub);
-            }
-        });
-        
+        map.current.on('click', 'pubs-layer', (e) => { if (e.features.length > 0 && e.features[0].id != null) { const pub = allPubsRef.current.find(p => p.id === e.features[0].id); if (pub) handlePubListItemClick(pub); } });
         setIsLoading(true); await handleDataUpdate(null, false); setIsLoading(false);
     });
   }, [handleDataUpdate, handlePubMouseEnter, handlePubMouseLeave]);
@@ -105,14 +100,7 @@ function App() {
 
   const handleLogVisit = async (pubId, options = {}) => { const { navigateOnSuccess = true } = options; setIsTogglingVisit(true); const { error } = await supabase.from('visits').insert({ pub_id: pubId, visit_date: new Date().toISOString() }); const pubName = allPubs.find(p => p.id === pubId)?.name || 'that pub'; if (error) { setNotification({ message: `Error logging visit: ${error.message}`, type: 'error' }); } else { await handleDataUpdate(pubId, navigateOnSuccess); setNotification({ message: `Visit logged for ${pubName}!`, type: 'success' }); } setIsTogglingVisit(false); };
   const handleRemoveVisit = async (pubId, visitId, options = {}) => { const { navigateOnSuccess = true } = options; setIsTogglingVisit(true); const { error } = await supabase.from('visits').delete().eq('id', visitId); const pubName = allPubs.find(p => p.id === pubId)?.name || 'that pub'; if (error) { setNotification({ message: `Error removing visit: ${error.message}`, type: 'error' }); } else { await handleDataUpdate(pubId, navigateOnSuccess); setNotification({ message: `Last visit removed for ${pubName}.`, type: 'success' }); } setIsTogglingVisit(false); };
-  
-  const handleMarkCrawlVisited = async () => {
-    if (!crawlPubIds || crawlPubIds.length === 0) return; setIsTogglingVisit(true);
-    const visitsToInsert = crawlPubIds.map(id => ({ pub_id: id, visit_date: new Date().toISOString(), }));
-    const { error } = await supabase.from('visits').insert(visitsToInsert);
-    if (error) { setNotification({ message: `Error saving crawl visits: ${error.message}`, type: 'error' }); } else { setNotification({ message: 'Crawl completed and saved!', type: 'success' }); await handleDataUpdate(); clearCrawlRoute(); }
-    setIsTogglingVisit(false);
-  };
+  const handleMarkCrawlVisited = async () => { if (!crawlPubIds || crawlPubIds.length === 0) return; setIsTogglingVisit(true); const visitsToInsert = crawlPubIds.map(id => ({ pub_id: id, visit_date: new Date().toISOString(), })); const { error } = await supabase.from('visits').insert(visitsToInsert); if (error) { setNotification({ message: `Error saving crawl visits: ${error.message}`, type: 'error' }); } else { setNotification({ message: 'Crawl completed and saved!', type: 'success' }); await handleDataUpdate(); clearCrawlRoute(); } setIsTogglingVisit(false); };
 
   const visitedCount = useMemo(() => allPubs.filter(p => p.is_visited).length, [allPubs]);
   const filteredPubs = useMemo(() => { return allPubs.filter(pub => { const matchesSearch = pub.name.toLowerCase().includes(searchTerm.toLowerCase()); if (filter === 'visited') return matchesSearch && pub.is_visited; if (filter === 'unvisited') return matchesSearch && !pub.is_visited; return matchesSearch; }).sort((a, b) => a.name.localeCompare(b.name)); }, [allPubs, searchTerm, filter]);
