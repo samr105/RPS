@@ -9,6 +9,7 @@ export default function MapController() {
     const mapContainer = useRef(null);
     const map = useRef(null);
     const popup = useRef(null);
+    const lastSelectedId = useRef(null);
 
     const { 
         pubs,
@@ -34,7 +35,6 @@ export default function MapController() {
         popup.current = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 15 });
 
         map.current.on('load', () => {
-            // FIX: Initialize sources with valid, empty data instead of null
             map.current.addSource('pubs', { type: 'geojson', data: EMPTY_GEOJSON, promoteId: 'id' });
             map.current.addSource('route', { type: 'geojson', data: EMPTY_GEOJSON });
             
@@ -57,25 +57,34 @@ export default function MapController() {
         });
     }, [setSelectedPubId, setHoveredPubId]);
     
-    const lastSelectedId = useRef(null);
-
-    // Effect 2: THE REACTOR - Syncs all visual state with the map
+    // FIX: Effect 2 - This effect's ONLY job is to put pub data on the map when it arrives.
     useEffect(() => {
-        if (!map.current?.isStyleLoaded()) return;
+        if (!map.current?.isStyleLoaded() || !pubs.length) return;
+        
+        const source = map.current.getSource('pubs');
+        if (!source) return;
 
-        // Sync pub data
-        const pubSource = map.current.getSource('pubs');
         const features = pubs.map(p => {
             const match = p.geom.match(/POINT\s*\(([^)]+)\)/);
             if (!match?.[1]) return null;
             const [lon, lat] = match[1].trim().split(/\s+/).map(Number);
-            return { type: 'Feature', id: p.id, geometry: { type: 'Point', coordinates: [lon, lat] }, properties: { ...p }};
+            return { type: 'Feature', id: p.id, geometry: { type: 'Point', coordinates: [lon, lat] }, properties: { is_visited: p.is_visited }};
         }).filter(Boolean);
-        pubSource.setData({ type: 'FeatureCollection', features });
+        
+        source.setData({ type: 'FeatureCollection', features });
 
-        // FIX: Always provide a valid GeoJSON object to setData
+    }, [pubs]);
+
+
+    // Effect 3: THE REACTOR for interactions (hover, select, crawl). This assumes data is already on the map.
+    useEffect(() => {
+        if (!map.current?.isStyleLoaded() || !pubs.length) return;
+
+        // Sync route data
         const routeSource = map.current.getSource('route');
-        routeSource.setData(crawl?.route || EMPTY_GEOJSON);
+        if (routeSource) {
+            routeSource.setData(crawl?.route || EMPTY_GEOJSON);
+        }
 
         // Update feature states and opacity
         let opacityExpression;
