@@ -13,10 +13,8 @@ import SearchFilter from './components/SearchFilter';
 import ProgressBar from './components/ProgressBar';
 import CrawlSummary from './components/CrawlSummary';
 
-// A slightly more complex SVG that renders better and includes a fill for coloring.
 const pintSVG = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%23FFF"><path d="M18.5,3H5.5L4,21H20L18.5,3Z"/></svg>';
 
-// ADDED: A helper function to reliably load an image from a URL or data string.
 const loadImage = (src, width = 48, height = 48) => {
   return new Promise((resolve, reject) => {
     const img = new Image(width, height);
@@ -31,7 +29,7 @@ function App() {
   const map = useRef(null);
   const eventHandlersRef = useRef({});
   const selectedPubIdRef = useRef(null);
-  const hoveredPubIdRef = useRef(null); // ADDED: A ref to track hover state reliably across handlers.
+  const hoveredPubIdRef = useRef(null);
   
   const [allPubs, setAllPubs] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -44,10 +42,8 @@ function App() {
   const [crawlPubIds, setCrawlPubIds] = useState([]);
   const [crawlSummary, setCrawlSummary] = useState(null);
 
-  // This effect correctly syncs React state with the MapLibre source data.
   useEffect(() => {
     if (!map.current || !map.current.isStyleLoaded() || !map.current.getSource('pubs-source')) return;
-    
     const features = allPubs.map(p => {
         if (!p || typeof p.geom !== 'string' || p.id == null) return null;
         const match = p.geom.match(/POINT\s*\(([^)]+)\)/);
@@ -56,14 +52,8 @@ function App() {
         const lon = parseFloat(parts[0]);
         const lat = parseFloat(parts[1]);
         if (parts.length !== 2 || isNaN(lon) || isNaN(lat)) return null;
-        return {
-            type: 'Feature',
-            id: p.id,
-            geometry: { type: 'Point', coordinates: [lon, lat] },
-            properties: { name: p.name, is_visited: p.is_visited }
-        };
+        return { type: 'Feature', id: p.id, geometry: { type: 'Point', coordinates: [lon, lat] }, properties: { name: p.name, is_visited: p.is_visited } };
     }).filter(Boolean);
-
     map.current.getSource('pubs-source').setData({ type: 'FeatureCollection', features });
   }, [allPubs]);
   
@@ -79,10 +69,7 @@ function App() {
 
   const handleDataUpdate = useCallback(async (currentSelectedId = null, selectAfter = false) => {
     const { data, error } = await supabase.rpc('get_all_pub_details');
-    if (error) {
-      setNotification({ message: `Error loading pubs: ${error.message}`, type: 'error' });
-      return [];
-    }
+    if (error) { setNotification({ message: `Error loading pubs: ${error.message}`, type: 'error' }); return []; }
     const pubData = data.map(pub => ({ ...pub, geom: pub.geom || '' }));
     setAllPubs(pubData);
     if (selectAfter && currentSelectedId) {
@@ -92,7 +79,6 @@ function App() {
     return pubData;
   }, []);
 
-  // Event handlers are now defined using useCallback to maintain stable references where needed.
   const handleGenerateCrawl = useCallback(async (pub) => {
     const button = document.querySelector('.generate-crawl-btn');
     if (button) { button.innerText = 'Calculating...'; button.disabled = true; }
@@ -110,38 +96,20 @@ function App() {
       const summaryPubs = data.pubIds.map(id => allPubs.find(p => p.id === id)).filter(Boolean);
       setCrawlSummary({ pubs: summaryPubs, duration: data.totalDuration });
       setNotification({ message: `Crawl found!`, type: 'success' });
-    } catch (err) {
-      setNotification({ message: `Error: ${err.message}`, type: 'error' });
-    } finally {
-      if (button) { button.innerText = 'Generate Mini-Crawl'; button.disabled = false; }
-    }
-  }, [allPubs]); // Dependency on allPubs to find pubs for summary
+    } catch (err) { setNotification({ message: `Error: ${err.message}`, type: 'error' }); } finally { if (button) { button.innerText = 'Generate Mini-Crawl'; button.disabled = false; } }
+  }, [allPubs]);
 
   const handlePubClick = useCallback((pub) => {
     if (!pub) return;
-    // If the pub is already selected, deselect it and clear the crawl
-    if (selectedPub?.id === pub.id) {
-        clearCrawlRoute();
-        setSelectedPub(null);
-        return;
-    }
-    
+    if (selectedPub?.id === pub.id) { clearCrawlRoute(); setSelectedPub(null); return; }
     setSelectedPub(pub);
-
-    if (!pub.is_visited) {
-        handleGenerateCrawl(pub);
-    } else {
-        clearCrawlRoute(); // Clear any existing crawl if we click a visited pub
-    }
+    if (!pub.is_visited) { handleGenerateCrawl(pub); } else { clearCrawlRoute(); }
   }, [selectedPub, clearCrawlRoute, handleGenerateCrawl]);
 
-  // ADDED: Handlers for two-way hover effect
   const handlePubMouseEnter = useCallback((pub) => {
     const pubId = pub.id;
     if (hoveredPubIdRef.current !== pubId) {
-        if (hoveredPubIdRef.current !== null) {
-            map.current?.setFeatureState({ source: 'pubs-source', id: hoveredPubIdRef.current }, { hover: false });
-        }
+        if (hoveredPubIdRef.current !== null) { map.current?.setFeatureState({ source: 'pubs-source', id: hoveredPubIdRef.current }, { hover: false }); }
         map.current?.setFeatureState({ source: 'pubs-source', id: pubId }, { hover: true });
         setHoveredPubId(pubId);
         hoveredPubIdRef.current = pubId;
@@ -164,62 +132,63 @@ function App() {
     map.current = new maplibregl.Map({ container: mapContainer.current, style: `https://tiles.stadiamaps.com/styles/alidade_smooth_dark.json?api_key=${stadiaApiKey}`, center: [-3.53, 50.72], zoom: 12, antialias: true });
 
     map.current.on('load', async () => {
-      // FIX: Use the new reliable image loading method.
       try {
         const pintImage = await loadImage(pintSVG);
-        map.current.addImage('pint-glass', pintImage, { sdf: true }); // sdf: true allows runtime color changes
+        map.current.addImage('pint-glass', pintImage, { sdf: true });
       } catch(error) {
-        console.error("CRITICAL: Failed to load map icon. Map may not display points correctly.", error);
+        console.error("CRITICAL: Failed to load map icon.", error);
         setNotification({ message: 'Error loading map icons.', type: 'error' });
       }
 
       map.current.addSource('pubs-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] }, promoteId: 'id' });
       
-      // FIX: Simplified layers and using SDF for coloring
+      // FIX: Consolidated into a single, robust layer definition.
       map.current.addLayer({
         id: 'pubs-layer',
         type: 'symbol',
         source: 'pubs-source',
         layout: {
-          'icon-image': 'pint-glass',
-          'icon-size': [ 'case',
-            ['boolean', ['feature-state', 'hover'], false], 1.2,
-            ['boolean', ['feature-state', 'selected'], false], 1.2,
-            0.8
-          ],
-          'icon-allow-overlap': true,
-          'icon-ignore-placement': true,
-          'text-field': ['get', 'name'],
-          'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
-          'text-size': 14,
-          'text-offset': [0, 1.5],
-          'text-anchor': 'top',
-          'text-optional': true,
+            'icon-image': 'pint-glass',
+            'icon-size': 0.9, // Constant size, does not use feature-state.
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+            'text-field': ['get', 'name'],
+            'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
+            'text-size': 14,
+            'text-offset': [0, 1.8],
+            'text-anchor': 'top',
         },
         paint: {
-            // Using SDF allows us to color the icon dynamically
             'icon-color': ['case',
-                ['==', ['get', 'is_visited'], true], '#f39c12', // Visited color (beer)
-                '#FFFFFF' // Unvisited color (white/empty)
+                ['==', ['get', 'is_visited'], true], '#f39c12', // Visited color
+                '#FFFFFF' // Unvisited color
             ],
-            'icon-opacity': [ 'case',
-              ['boolean', ['feature-state', 'hover'], false], 1,
-              ['boolean', ['feature-state', 'selected'], false], 1,
-              0.7
+            'icon-opacity': ['case',
+                ['any', ['boolean', ['feature-state', 'hover'], false], ['boolean', ['feature-state', 'selected'], false]], 1.0,
+                0.75 // Default opacity
             ],
+            // Use a halo to "enlarge" the icon on hover/select.
+            'icon-halo-width': ['case',
+                ['any', ['boolean', ['feature-state', 'hover'], false], ['boolean', ['feature-state', 'selected'], false]], 2,
+                0 // No halo by default
+            ],
+            'icon-halo-color': "rgba(23, 110, 253, 0.4)", // Accent blue halo
             'text-color': '#FFFFFF',
             'text-halo-color': '#000000',
-            'text-halo-width': 1,
-            'text-opacity': [ 'case',
-              ['boolean', ['feature-state', 'hover'], false], 1,
-              ['boolean', ['feature-state', 'selected'], false], 1,
-              0
+            'text-halo-width': 1.5,
+            // Show text only on hover or select.
+            'text-opacity': ['case',
+                ['any', ['boolean', ['feature-state', 'hover'], false], ['boolean', ['feature-state', 'selected'], false]], 1.0,
+                0.0
             ],
-            'text-opacity-transition': { duration: 200 },
+            // Add smooth transitions for all dynamic properties.
             'icon-opacity-transition': { duration: 200 },
+            'text-opacity-transition': { duration: 200 },
+            'icon-halo-width-transition': { duration: 200 }
         }
       });
-
+      
+      // FIX: Event listeners now correctly point to the single 'pubs-layer'.
       map.current.on('mousemove', 'pubs-layer', (e) => {
         if (e.features.length > 0) {
           map.current.getCanvas().style.cursor = 'pointer';
@@ -241,29 +210,19 @@ function App() {
       await handleDataUpdate();
       setIsLoading(false);
     });
-  }, [handleDataUpdate]); // This effect should only run once.
+  }, [handleDataUpdate, handleGenerateCrawl, handlePubClick, handlePubMouseEnter, handlePubMouseLeave]);
 
   useEffect(() => {
     if (!map.current || !map.current.isStyleLoaded()) return;
     const previousSelectedId = selectedPubIdRef.current;
-    if (previousSelectedId !== null) {
-      map.current.setFeatureState({ source: 'pubs-source', id: previousSelectedId }, { selected: false });
-    }
+    if (previousSelectedId !== null) { map.current.setFeatureState({ source: 'pubs-source', id: previousSelectedId }, { selected: false }); }
     if (selectedPub) {
       const { id, geom } = selectedPub;
       selectedPubIdRef.current = id;
       map.current.setFeatureState({ source: 'pubs-source', id }, { selected: true });
-      
       const match = geom.match(/POINT\s*\(([^)]+)\)/);
-      if (match?.[1]) {
-        const coords = match[1].trim().split(/\s+/).map(Number);
-        if (coords.length === 2) {
-          map.current.flyTo({ center: coords, zoom: 15, pitch: 30, essential: true });
-        }
-      }
-    } else {
-      selectedPubIdRef.current = null;
-    }
+      if (match?.[1]) { const coords = match[1].trim().split(/\s+/).map(Number); if (coords.length === 2) { map.current.flyTo({ center: coords, zoom: 15, pitch: 30, essential: true }); } }
+    } else { selectedPubIdRef.current = null; }
   }, [selectedPub]);
   
   const handleLogVisit = async (pubId, options = {}) => { const { navigateOnSuccess = true } = options; setIsTogglingVisit(true); const { error } = await supabase.from('visits').insert({ pub_id: pubId, visit_date: new Date().toISOString() }); const pubName = allPubs.find(p => p.id === pubId)?.name || 'that pub'; if (error) { setNotification({ message: `Error logging visit: ${error.message}`, type: 'error' }); } else { await handleDataUpdate(pubId, navigateOnSuccess); setNotification({ message: `Visit logged for ${pubName}!`, type: 'success' }); } setIsTogglingVisit(false); };
@@ -287,7 +246,7 @@ function App() {
               ) : (
                 <motion.div key="list">
                   <h2 className="sidebar-header">Exeter Pubs ({filteredPubs.length})</h2>
-                  <PubList pubs={filteredPubs} onSelectPub={eventHandlersRef.current.handlePubClick} onLogVisit={handleLogVisit} onRemoveVisit={handleRemoveVisit} isTogglingVisit={isTogglingVisit} onMouseEnter={(pub) => eventHandlersRef.current.handlePubMouseEnter(pub)} onMouseLeave={() => eventHandlersRef.current.handlePubMouseLeave()} hoveredPubId={hoveredPubId} />
+                  <PubList pubs={filteredPubs} onSelectPub={eventHandlersRef.current.handlePubClick} onLogVisit={handleLogVisit} onRemoveVisit={handleRemoveVisit} isTogglingVisit={isTogglingVisit} onMouseEnter={eventHandlersRef.current.handlePubMouseEnter} onMouseLeave={eventHandlersRef.current.handlePubMouseLeave} hoveredPubId={hoveredPubId} />
                 </motion.div>
               )}
             </AnimatePresence>
