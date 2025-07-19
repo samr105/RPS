@@ -16,11 +16,11 @@ const PubDetailView = ({ pub, onBack, onToggleVisit, onGenerateCrawl, onRemoveVi
             </div>
             
             <div className="action-buttons">
-                <button className="action-button visited-btn" onClick={() => onToggleVisit(pub.id)} disabled={isToggling}>
+                <button className="action-button visited-btn" onClick={() => onToggleVisit(pub.id, {navigateOnSuccess: true})} disabled={isToggling}>
                     {isToggling ? 'Logging Visit...' : 'Log a New Visit'}
                 </button>
                 {pub.is_visited && pub.visit_history?.[0] && (
-                    <button className="action-button remove-visit-btn" onClick={() => onRemoveVisit(pub.id, pub.visit_history[0].id)} disabled={isToggling}>
+                    <button className="action-button remove-visit-btn" onClick={() => onRemoveVisit(pub.id, pub.visit_history[0].id, {navigateOnSuccess: true})} disabled={isToggling}>
                          {isToggling ? 'Removing...' : 'Remove Last Visit'}
                     </button>
                 )}
@@ -40,17 +40,11 @@ const PubDetailView = ({ pub, onBack, onToggleVisit, onGenerateCrawl, onRemoveVi
                 <h4>Visit History</h4>
                 {pub.visit_history && pub.visit_history.length > 0 ? (
                     <ul className="visit-list">
-                        {pub.visit_history.map(visit => (
-                            <li key={visit.id} className="visit-item">
-                                {/* FIX: Corrected typo from toLocaleDateDateString to toLocaleDateString */}
-                                Visited on: <span>{new Date(visit.visit_date).toLocaleDateString()}</span>
-                            </li>
-                        ))}
+                        {pub.visit_history.map(visit => (<li key={visit.id} className="visit-item">Visited on: <span>{new Date(visit.visit_date).toLocaleDateString()}</span></li>))}
                     </ul>
                 ) : <p>No visits logged yet.</p>}
             </div>
         </motion.div>
     );
 };
-
 export default PubDetailView;
