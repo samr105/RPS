@@ -17,7 +17,6 @@ function App() {
   const mapContainer = useRef(null);
   const map = useRef(null);
   
-  // Use refs to store the latest ID, preventing stale state in map event listeners
   const hoveredPubIdRef = useRef(null);
   const selectedPubIdRef = useRef(null);
 
@@ -27,19 +26,16 @@ function App() {
   const [selectedPub, setSelectedPub] = useState(null);
   const [hoveredPubId, setHoveredPubId] = useState(null);
   
-  // State for secondary UI features
   const [isTogglingVisit, setIsTogglingVisit] = useState(false);
   const [notification, setNotification] = useState({ message: '', type: 'info' });
   const [searchTerm, setSearchTerm] = useState('');
   const [filter, setFilter] = useState('all');
   const [crawlSummary, setCrawlSummary] = useState(null);
 
-  // Memoized handlers to prevent unnecessary re-renders of children
   const onPubClick = useCallback((pub) => setSelectedPub(current => (current?.id === pub.id ? null : pub)), []);
   const onPubEnter = useCallback((pub) => setHoveredPubId(pub?.id), []);
   const onPubLeave = useCallback(() => setHoveredPubId(null), []);
   
-  // Effect for map initialization. Runs only once on mount.
   useEffect(() => {
     if (map.current) return;
     const stadiaApiKey = import.meta.env.VITE_STADIA_API_KEY;
@@ -54,11 +50,9 @@ function App() {
     return () => { map.current?.remove(); map.current = null; };
   }, []);
 
-  // Effect to set up map sources, layers, and listeners. Runs only once when map is ready.
   useEffect(() => {
     if (!isMapReady) return;
 
-    // Define handlers inside the effect to capture the correct scope
     const handleMouseMove = (e) => {
       if (e.features?.length) {
         map.current.getCanvas().style.cursor = 'pointer';
@@ -76,27 +70,29 @@ function App() {
       }
     };
     
-    map.current.addSource('pubs-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] }, promoteId: 'id' });
-    map.current.addLayer({
-        id: 'pubs-layer',
-        type: 'circle',
-        source: 'pubs-source',
-        paint: {
-            'circle-color': ['case', ['get', 'is_visited'], '#f39c12', '#FFFFFF'],
-            'circle-radius': ['case', ['boolean', ['feature-state', 'selected'], false], 10, ['boolean', ['feature-state', 'hover'], false], 8, 5],
-            'circle-stroke-width': ['case', ['any', ['boolean', ['feature-state', 'hover'], false], ['boolean', ['feature-state', 'selected'], false]], 2.5, 0],
-            'circle-stroke-color': '#0d6efd',
-            'circle-opacity': 0.9,
-            'circle-radius-transition': { duration: 150 },
-            'circle-stroke-opacity-transition': { duration: 150 }
-        }
-    });
+    // Check if source exists before adding
+    if (!map.current.getSource('pubs-source')) {
+      map.current.addSource('pubs-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] }, promoteId: 'id' });
+      map.current.addLayer({
+          id: 'pubs-layer',
+          type: 'circle',
+          source: 'pubs-source',
+          paint: {
+              'circle-color': ['case', ['get', 'is_visited'], '#f39c12', '#FFFFFF'],
+              'circle-radius': ['case', ['boolean', ['feature-state', 'selected'], false], 10, ['boolean', ['feature-state', 'hover'], false], 8, 5],
+              'circle-stroke-width': ['case', ['any', ['boolean', ['feature-state', 'hover'], false], ['boolean', ['feature-state', 'selected'], false]], 2.5, 0],
+              'circle-stroke-color': '#0d6efd',
+              'circle-opacity': 0.9,
+              'circle-radius-transition': { duration: 150 },
+              'circle-stroke-opacity-transition': { duration: 150 }
+          }
+      });
+    }
 
     map.current.on('mousemove', 'pubs-layer', handleMouseMove);
     map.current.on('mouseleave', 'pubs-layer', handleMouseLeave);
     map.current.on('click', 'pubs-layer', handleClick);
     
-    // Initial data fetch
     const fetchData = async () => {
         setIsLoading(true);
         const { data, error } = await supabase.rpc('get_all_pub_details');
@@ -106,7 +102,6 @@ function App() {
     };
     fetchData();
 
-    // Cleanup listeners on unmount
     return () => {
         if (map.current) {
             map.current.off('mousemove', 'pubs-layer', handleMouseMove);
@@ -116,7 +111,6 @@ function App() {
     };
   }, [isMapReady, allPubs]);
 
-  // Effect to sync GeoJSON data source with allPubs state
   useEffect(() => {
     if (!isMapReady || !map.current.getSource('pubs-source')) return;
     const features = allPubs.map(pub => {
@@ -128,7 +122,6 @@ function App() {
     map.current.getSource('pubs-source').setData({ type: 'FeatureCollection', features });
   }, [allPubs, isMapReady]);
   
-  // Effect to sync map's visual state with React's hover state
   useEffect(() => {
     if (!isMapReady) return;
     if (hoveredPubIdRef.current) map.current.setFeatureState({ source: 'pubs-source', id: hoveredPubIdRef.current }, { hover: false });
@@ -136,7 +129,6 @@ function App() {
     hoveredPubIdRef.current = hoveredPubId;
   }, [hoveredPubId, isMapReady]);
 
-  // Effect to sync map's visual state with React's selected state
   useEffect(() => {
     if (!isMapReady) return;
     if (selectedPubIdRef.current) map.current.setFeatureState({ source: 'pubs-source', id: selectedPubIdRef.current }, { selected: false });
@@ -177,7 +169,7 @@ function App() {
                   <PubList pubs={filteredPubs} onSelectPub={onPubClick} onLogVisit={handleLogVisit} onRemoveVisit={handleRemoveVisit} isTogglingVisit={isTogglingVisit} onMouseEnter={onPubEnter} onMouseLeave={onPubLeave} hoveredPubId={hoveredPubId}/>
                 </motion.div>
               )}
-            </AnatePresence>
+            </AnimatePresence>
           </div>
         </aside>
         <div ref={mapContainer} className="map-container" />
