@@ -4,7 +4,8 @@ import { motion } from 'framer-motion';
 import { useMapContext } from '../context/MapContext';
 
 export default function PubDetailView({ pub }) {
-    const { setSelectedPubId, toggleVisit, generateCrawl, isProcessing } = useMapContext();
+    // FIX: Using simplified, direct functions from context
+    const { selectPub, toggleVisit, generateCrawl, isProcessing } = useMapContext();
 
     const handleVisitClick = () => {
         toggleVisit(pub.id, pub.is_visited);
@@ -12,7 +13,8 @@ export default function PubDetailView({ pub }) {
 
     return (
         <motion.div initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }}>
-            <button className="back-button" onClick={() => setSelectedPubId(null)}>← All Pubs</button>
+            {/* FIX: The "All Pubs" button now correctly deselects the pub */}
+            <button className="back-button" onClick={() => selectPub(null)}>← All Pubs</button>
             <div className="selected-pub-header">
                 <h3>{pub.name}</h3>
                 <p>{pub.address || 'Address not available'}</p>

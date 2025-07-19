@@ -11,7 +11,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 
 // Main layout component that can access the context
 function AppLayout() {
-  const { isLoading, notification, clearNotification, crawlPubs } = useMapContext();
+  const { isLoading, crawlPubs } = useMapContext();
 
   return (
     <>
@@ -19,11 +19,7 @@ function AppLayout() {
         Loading Map & Pubs...
       </div>
       <div className="app-container">
-        <Notification
-          message={notification.message}
-          type={notification.type}
-          onClose={clearNotification}
-        />
+        <Notification />
         <Sidebar />
         <MapController />
         {crawlPubs.length > 0 && <CrawlSummary />}
