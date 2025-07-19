@@ -5,26 +5,19 @@ import { useMapContext } from '../context/MapContext';
 
 export default function PubList({ pubs }) {
     const { 
-        selectedPubId,
-        hoveredPubId,
-        isProcessing,
-        setSelectedPubId,
-        setHoveredPubId,
-        toggleVisit,
+        selectedPubId, hoveredPubId, isProcessing, selectPub, hoverPub, toggleVisit,
     } = useMapContext();
     const listItemsRef = useRef({});
 
     useEffect(() => {
         const idToScroll = hoveredPubId || selectedPubId;
         if (idToScroll) {
-            listItemsRef.current[idToScroll]?.scrollIntoView({
-                behavior: 'smooth', block: 'nearest'
-            });
+            listItemsRef.current[idToScroll]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
     }, [hoveredPubId, selectedPubId]);
   
     const handleQuickToggle = (event, pub) => {
-        event.stopPropagation();
+        event.stopPropagation(); // <-- FIX: Prevents the click from triggering the parent li's onClick.
         if (isProcessing) return;
         toggleVisit(pub.id, pub.is_visited);
     };
@@ -36,9 +29,9 @@ export default function PubList({ pubs }) {
                 ref={el => listItemsRef.current[pub.id] = el}
                 key={pub.id}
                 className={`pub-list-item ${hoveredPubId === pub.id || selectedPubId === pub.id ? 'highlighted' : ''}`}
-                onClick={() => setSelectedPubId(pub.id)}
-                onMouseEnter={() => setHoveredPubId(pub.id)}
-                onMouseLeave={() => setHoveredPubId(null)}
+                onClick={() => selectPub(pub.id)}
+                onMouseEnter={() => hoverPub(pub.id)}
+                onMouseLeave={() => hoverPub(null)}
                 variants={{ visible: { opacity: 1, y: 0 }, hidden: { opacity: 0, y: 20 } }}
                 layout
             >
