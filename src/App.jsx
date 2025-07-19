@@ -92,7 +92,10 @@ function App() {
               'circle-stroke-width': 2.5,
               'circle-stroke-color': ['case', ['boolean', ['feature-state', 'selected'], false], '#0d6efd', '#FFFFFF'],
               'circle-opacity': 1.0,
-              'circle-stroke-opacity': 1.0
+              'circle-stroke-opacity': 1.0,
+              // Add transitions for smooth animations
+              'circle-radius-transition': { duration: 200 },
+              'circle-color-transition': { duration: 200 }
           }
       });
       map.current.addLayer({
@@ -187,14 +190,31 @@ function App() {
     }
   }, [crawlRoute]);
   
-  // Effect 5: Manages pub pin opacity during a crawl
+  // Effect 5: Manages pub pin opacity for focus effect on hover and crawl
   useEffect(() => {
-    if (!map.current?.isStyleLoaded()) return;
-    const crawlInProgress = crawlPubIds.length > 0;
-    const opacity = crawlInProgress ? ['case', ['in', ['id'], ['literal', crawlPubIds]], 1.0, 0.4] : 1.0;
-    map.current.setPaintProperty('pubs-layer', 'circle-opacity', opacity);
-    map.current.setPaintProperty('pubs-layer', 'circle-stroke-opacity', opacity);
-  }, [crawlPubIds]);
+      if (!map.current?.isStyleLoaded()) return;
+
+      const interactionActive = crawlPubIds.length > 0 || hoveredPubId !== null;
+      let opacityExpression;
+
+      if (crawlPubIds.length > 0) {
+          // If a crawl is active, only show crawl pubs
+          opacityExpression = ['case', ['in', ['id'], ['literal', crawlPubIds]], 1.0, 0.3];
+      } else if (hoveredPubId !== null) {
+          // If hovering, show the hovered and selected pub, dim others
+          const visibleIds = [hoveredPubId];
+          if (selectedPubId) visibleIds.push(selectedPubId);
+          opacityExpression = ['case', ['in', ['id'], ['literal', visibleIds]], 1.0, 0.3];
+      } else {
+          // No interaction, all pubs fully visible
+          opacityExpression = 1.0;
+      }
+      
+      map.current.setPaintProperty('pubs-layer', 'circle-opacity', opacityExpression);
+      map.current.setPaintProperty('pubs-layer', 'circle-stroke-opacity', opacityExpression);
+      
+  }, [crawlPubIds, hoveredPubId, selectedPubId]);
+
 
   useEffect(() => {
     if(selectedPubId && crawlPubIds.length > 0 && !crawlPubIds.includes(selectedPubId)) {
