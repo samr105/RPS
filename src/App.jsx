@@ -243,7 +243,7 @@ function App() {
   const handleMarkCrawlVisited = async () => {
     if (!crawlPubIds?.length) return;
     setIsProcessing(true);
-_    const visitsToInsert = crawlPubIds.map(id => ({ pub_id: id, visit_date: new Date().toISOString() }));
+    const visitsToInsert = crawlPubIds.map(id => ({ pub_id: id, visit_date: new Date().toISOString() }));
     const { error } = await supabase.from('visits').insert(visitsToInsert);
     if (error) setNotification({ message: `Error saving crawl visits: ${error.message}`, type: 'error' });
     else {
