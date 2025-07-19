@@ -1,5 +1,5 @@
 // src/components/Sidebar.jsx
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react'; // <-- FIX: useMemo is now imported
 import { AnimatePresence, motion } from 'framer-motion';
 import { useMapContext } from '../context/MapContext';
 
