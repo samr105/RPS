@@ -6,7 +6,15 @@ const PubList = ({ pubs, onSelectPub, onLogVisit, onRemoveVisit, isTogglingVisit
   const listItemsRef = useRef({});
 
   useEffect(() => {
-    const pubIdToScroll = hoveredPubId ?? selectedPubId;
+    let pubIdToScroll = null;
+    // Prefer highlighting the hovered pub for smooth scrolling feel
+    if(hoveredPubId !== null) {
+      pubIdToScroll = hoveredPubId;
+    } else if (selectedPubId !== null) {
+      // Fallback to selected pub if nothing is hovered
+      pubIdToScroll = selectedPubId;
+    }
+    
     if (pubIdToScroll !== null) {
       const element = listItemsRef.current[pubIdToScroll];
       if (element) {
