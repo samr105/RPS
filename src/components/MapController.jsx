@@ -1,5 +1,5 @@
 // src/components/MapController.jsx
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useMemo } from 'react';
 import maplibregl from 'maplibre-gl';
 import { useMapContext } from '../context/MapContext';
 
@@ -23,9 +23,10 @@ export default function MapController() {
     
     const [mapIsLoaded, setMapIsLoaded] = useState(false);
 
-    // Effect 1: Initialize map instance (runs only once)
+    // --- EFFECT 1: Initialize map instance (runs only once) ---
     useEffect(() => {
         if (map.current) return;
+        
         const stadiaApiKey = import.meta.env.VITE_STADIA_API_KEY;
         map.current = new maplibregl.Map({
             container: mapContainer.current,
@@ -34,6 +35,7 @@ export default function MapController() {
             zoom: 12,
             antialias: true,
         });
+        
         popup.current = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 15 });
 
         map.current.on('load', () => {
@@ -59,39 +61,52 @@ export default function MapController() {
             
             setMapIsLoaded(true);
         });
+        
+        return () => map.current?.remove();
     }, [setSelectedPubId, setHoveredPubId]);
     
+    // Memoize the pub GeoJSON data so it's only recalculated when `pubs` changes.
+    const pubFeatures = useMemo(() => {
+        return pubs.map(p => {
+            const match = p.geom.match(/POINT\s*\(([^)]+)\)/);
+            if (!match?.[1]) return null;
+            const [lon, lat] = match[1].trim().split(/\s+/).map(Number);
+            return {
+                type: 'Feature',
+                id: p.id,
+                geometry: { type: 'Point', coordinates: [lon, lat] },
+                properties: {
+                    is_visited: p.is_visited,
+                    name: p.name,
+                }
+            };
+        }).filter(Boolean);
+    }, [pubs]);
 
-    // Effect 2: THE SINGLE REACTOR - Syncs all visual state with the map
+    // --- EFFECT 2: Sync pub data to map source ---
+    // This effect runs only when the map is loaded and the pub data has changed.
     useEffect(() => {
-        if (!mapIsLoaded || !map.current) return;
-
-        // Sync pub data - ONLY runs if the pub data has actually changed
-        const pubSource = map.current.getSource('pubs');
-        if (pubSource) {
-            // THE FIX: Be explicit with properties passed to the map. This prevents the "object" error.
-            const features = pubs.map(p => {
-                const match = p.geom.match(/POINT\s*\(([^)]+)\)/);
-                if (!match?.[1]) return null;
-                const [lon, lat] = match[1].trim().split(/\s+/).map(Number);
-                return { 
-                    type: 'Feature', 
-                    id: p.id, 
-                    geometry: { type: 'Point', coordinates: [lon, lat] }, 
-                    properties: { 
-                        is_visited: p.is_visited, // Primitive boolean
-                        name: p.name              // Primitive string
-                    }
-                };
-            }).filter(Boolean);
-            pubSource.setData({ type: 'FeatureCollection', features });
-        }
+        if (!mapIsLoaded || !map.current.getSource('pubs')) return;
         
-        const routeSource = map.current.getSource('route');
-        if(routeSource) {
-            routeSource.setData(crawl?.route || EMPTY_GEOJSON);
-        }
+        const pubSource = map.current.getSource('pubs');
+        pubSource.setData({ type: 'FeatureCollection', features: pubFeatures });
+    }, [mapIsLoaded, pubFeatures]);
 
+
+    // --- EFFECT 3: Sync interactions (hover, select, crawl) to map visuals ---
+    // This effect is lightweight and runs every time an interaction state changes.
+    useEffect(() => {
+        if (!mapIsLoaded || !pubs.length) return;
+        
+        // Sync feature states for hover and selection
+        pubs.forEach(pub => {
+            map.current.setFeatureState({ source: 'pubs', id: pub.id }, {
+                hovered: pub.id === hoveredPubId,
+                selected: pub.id === selectedPubId,
+            });
+        });
+
+        // Sync pin opacity for focus effect
         let opacityExpression;
         if (crawl) {
             opacityExpression = ['case', ['in', ['id'], ['literal', crawl.pubIds]], 1.0, 0.3];
@@ -103,27 +118,26 @@ export default function MapController() {
             opacityExpression = 1.0;
         }
         map.current.setPaintProperty('pubs-layer', 'circle-opacity', opacityExpression);
-        
-        pubs.forEach(pub => {
-            map.current.setFeatureState({ source: 'pubs', id: pub.id }, {
-                hovered: pub.id === hoveredPubId,
-                selected: pub.id === selectedPubId,
-            });
-        });
 
+        // Sync popup
         popup.current.remove();
-        if(hoveredPubId !== null){
+        if(hoveredPubId) {
             const pub = pubs.find(p => p.id === hoveredPubId);
-            if (pub) {
+            if(pub && pub.geom){
                 const match = pub.geom.match(/POINT\s*\(([^)]+)\)/);
                 if (match?.[1]) {
-                    const coords = match[1].trim().split(/\s+/).map(Number);
-                    popup.current.setLngLat(coords).setHTML(`<strong>${pub.name}</strong>`).addTo(map.current);
+                    popup.current.setLngLat(match[1].trim().split(/\s+/).map(Number))
+                        .setHTML(`<strong>${pub.name}</strong>`)
+                        .addTo(map.current);
                 }
             }
         }
         
-        if(selectedPub && selectedPubId !== lastSelectedId.current){
+        // Sync crawl route visuals
+        map.current.getSource('route')?.setData(crawl?.route || EMPTY_GEOJSON);
+
+        // Sync map camera/fly-to
+        if (selectedPub && selectedPubId !== lastSelectedId.current) {
              const match = selectedPub.geom.match(/POINT\s*\(([^)]+)\)/);
              if (match?.[1]) {
                 map.current.flyTo({ center: match[1].trim().split(/\s+/).map(Number), zoom: 15 });
@@ -131,7 +145,7 @@ export default function MapController() {
         }
         lastSelectedId.current = selectedPubId;
         
-    }, [pubs, selectedPub, selectedPubId, hoveredPubId, crawl, mapIsLoaded]);
+    }, [mapIsLoaded, pubs, selectedPub, selectedPubId, hoveredPubId, crawl]);
 
     return <div ref={mapContainer} className="map-container" />;
 }
