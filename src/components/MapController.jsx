@@ -1,5 +1,5 @@
 // src/components/MapController.jsx
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import { useMapContext } from '../context/MapContext';
 
@@ -20,6 +20,9 @@ export default function MapController() {
         setSelectedPubId,
         setHoveredPubId 
     } = useMapContext();
+    
+    // FIX: State flag to solve race condition.
+    const [mapIsLoaded, setMapIsLoaded] = useState(false);
 
     // Effect 1: Initialize map instance (runs only once)
     useEffect(() => {
@@ -54,37 +57,31 @@ export default function MapController() {
             map.current.on('click', 'pubs-layer', e => e.features.length > 0 && setSelectedPubId(e.features[0].id));
             map.current.on('mouseenter', 'pubs-layer', e => e.features.length > 0 && setHoveredPubId(e.features[0].id));
             map.current.on('mouseleave', 'pubs-layer', () => setHoveredPubId(null));
+            
+            // Set the loaded flag to true ONLY when the 'load' event fires.
+            setMapIsLoaded(true);
         });
     }, [setSelectedPubId, setHoveredPubId]);
     
-    // FIX: Effect 2 - This effect's ONLY job is to put pub data on the map when it arrives.
-    useEffect(() => {
-        if (!map.current?.isStyleLoaded() || !pubs.length) return;
-        
-        const source = map.current.getSource('pubs');
-        if (!source) return;
 
+    // Effect 2: THE SINGLE REACTOR - Syncs all visual state with the map
+    useEffect(() => {
+        // FIX: The effect will not run until the map is confirmed to be loaded.
+        if (!mapIsLoaded || !map.current) return;
+
+        // Sync pub data
+        const pubSource = map.current.getSource('pubs');
         const features = pubs.map(p => {
             const match = p.geom.match(/POINT\s*\(([^)]+)\)/);
             if (!match?.[1]) return null;
             const [lon, lat] = match[1].trim().split(/\s+/).map(Number);
             return { type: 'Feature', id: p.id, geometry: { type: 'Point', coordinates: [lon, lat] }, properties: { is_visited: p.is_visited }};
         }).filter(Boolean);
-        
-        source.setData({ type: 'FeatureCollection', features });
-
-    }, [pubs]);
-
-
-    // Effect 3: THE REACTOR for interactions (hover, select, crawl). This assumes data is already on the map.
-    useEffect(() => {
-        if (!map.current?.isStyleLoaded() || !pubs.length) return;
+        pubSource.setData({ type: 'FeatureCollection', features });
 
         // Sync route data
         const routeSource = map.current.getSource('route');
-        if (routeSource) {
-            routeSource.setData(crawl?.route || EMPTY_GEOJSON);
-        }
+        routeSource.setData(crawl?.route || EMPTY_GEOJSON);
 
         // Update feature states and opacity
         let opacityExpression;
@@ -128,7 +125,7 @@ export default function MapController() {
         }
         lastSelectedId.current = selectedPubId;
         
-    }, [pubs, selectedPub, selectedPubId, hoveredPubId, crawl]);
+    }, [pubs, selectedPub, selectedPubId, hoveredPubId, crawl, mapIsLoaded]); // <-- mapIsLoaded is a dependency
 
     return <div ref={mapContainer} className="map-container" />;
 }
