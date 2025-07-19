@@ -1,5 +1,5 @@
 // src/components/Sidebar.jsx
-import React, { useState, useMemo } from 'react'; // <-- FIX: useMemo is now imported
+import React, { useState, useMemo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useMapContext } from '../context/MapContext';
 
@@ -25,6 +25,11 @@ export default function Sidebar() {
             return true;
         }).sort((a,b) => a.name.localeCompare(b.name));
     }, [pubs, filter]);
+
+    // FIX: Prevents division by zero on initial render
+    const progressPercentage = pubs.length > 0 ? visitedCount / pubs.length : 0;
+    const barHeight = 110 * progressPercentage;
+    const barY = 130 - barHeight;
 
     return (
         <aside className="sidebar">
@@ -54,7 +59,7 @@ export default function Sidebar() {
              <div className="progress-bar-container">
                 <svg className="pint-glass-svg" viewBox="0 0 100 150">
                     <defs><clipPath id="pint-glass-mask"><path d="M10 20 L20 130 H80 L90 20 Z" /></clipPath></defs>
-                    <rect className="beer-fill" x="0" y={130 - (110 * (visitedCount / pubs.length))} width="100" height={110 * (visitedCount / pubs.length)} clipPath="url(#pint-glass-mask)" />
+                    <rect className="beer-fill" x="0" y={barY} width="100" height={barHeight} clipPath="url(#pint-glass-mask)" />
                     <path d="M10 20 L20 130 H80 L90 20 Z" className="glass-outline" />
                 </svg>
                 <div className="progress-text">{visitedCount} / {pubs.length}</div>

@@ -3,6 +3,8 @@ import React, { useRef, useEffect } from 'react';
 import maplibregl from 'maplibre-gl';
 import { useMapContext } from '../context/MapContext';
 
+const EMPTY_GEOJSON = { type: 'FeatureCollection', features: [] };
+
 export default function MapController() {
     const mapContainer = useRef(null);
     const map = useRef(null);
@@ -32,8 +34,9 @@ export default function MapController() {
         popup.current = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 15 });
 
         map.current.on('load', () => {
-            map.current.addSource('pubs', { type: 'geojson', data: { type: 'FeatureCollection', features: [] }, promoteId: 'id' });
-            map.current.addSource('route', { type: 'geojson', data: null });
+            // FIX: Initialize sources with valid, empty data instead of null
+            map.current.addSource('pubs', { type: 'geojson', data: EMPTY_GEOJSON, promoteId: 'id' });
+            map.current.addSource('route', { type: 'geojson', data: EMPTY_GEOJSON });
             
             map.current.addLayer({
                 id: 'pubs-layer', type: 'circle', source: 'pubs',
@@ -70,16 +73,18 @@ export default function MapController() {
         }).filter(Boolean);
         pubSource.setData({ type: 'FeatureCollection', features });
 
-        // Sync route data
+        // FIX: Always provide a valid GeoJSON object to setData
         const routeSource = map.current.getSource('route');
-        routeSource.setData(crawl?.route || null);
+        routeSource.setData(crawl?.route || EMPTY_GEOJSON);
 
         // Update feature states and opacity
         let opacityExpression;
         if (crawl) {
             opacityExpression = ['case', ['in', ['id'], ['literal', crawl.pubIds]], 1.0, 0.3];
         } else if (hoveredPubId) {
-            opacityExpression = ['case', ['==', ['id'], hoveredPubId], 1.0, 0.3];
+            const visibleIds = [hoveredPubId];
+            if(selectedPubId) visibleIds.push(selectedPubId);
+            opacityExpression = ['case', ['in', ['id'], ['literal', visibleIds]], 1.0, 0.3];
         } else {
             opacityExpression = 1.0;
         }
